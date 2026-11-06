@@ -17,6 +17,13 @@ python3 -m http.server 8000
 
 ## 배포 (무료)
 
+**현재 주소: https://warren-booffett.github.io/moksilgam/** (GitHub Pages)
+
+Pages 설정: Settings → Pages → Source `Deploy from a branch` → Branch `claude/trusting-planck-5r8ln3` / `(root)` → Save.
+이후에는 이 브랜치에 푸시할 때마다 자동으로 다시 배포됩니다.
+
+다른 방법:
+
 **Vercel (비공개 저장소여도 무료)**
 1. https://vercel.com 에 GitHub 계정으로 로그인합니다
 2. Add New → Project → `moksilgam` 저장소를 Import 합니다
