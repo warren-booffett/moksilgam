@@ -1,0 +1,17 @@
+{
+  "name": "목실감 - 목표·실천·감사",
+  "short_name": "목실감",
+  "description": "매일의 목표·실천·감사를 기록하는 개인 일기장",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f5f0",
+  "theme_color": "#e8743b",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

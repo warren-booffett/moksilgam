@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>목실감</title>
+  <meta name="description" content="매일의 목표·실천·감사를 기록하는 개인 일기장" />
+  <meta name="theme-color" content="#f7f5f0" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)" />
+
+  <!-- PWA / iOS 홈 화면 설치 -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="목실감" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand">목실감</h1>
+    <div class="streak" id="streak" title="연속 기록일">🔥 <span id="streakNum">0</span>일</div>
+  </header>
+
+  <main>
+    <!-- 오늘(선택한 날짜) 기록 -->
+    <section id="viewWrite" class="view">
+      <nav class="datebar">
+        <button class="icon-btn" id="prevDay" aria-label="이전 날">‹</button>
+        <button class="date-label" id="dateLabel" aria-label="날짜 선택"></button>
+        <input type="date" id="datePicker" class="sr-only" tabindex="-1" />
+        <button class="icon-btn" id="nextDay" aria-label="다음 날">›</button>
+      </nav>
+
+      <label class="card">
+        <span class="card-title">🎯 목표</span>
+        <textarea id="goal" rows="3" placeholder="오늘 이루고 싶은 것"></textarea>
+      </label>
+      <label class="card">
+        <span class="card-title">✅ 실천</span>
+        <textarea id="action" rows="3" placeholder="오늘 실제로 한 것"></textarea>
+      </label>
+      <label class="card">
+        <span class="card-title">🙏 감사</span>
+        <textarea id="thanks" rows="3" placeholder="오늘 감사한 것"></textarea>
+      </label>
+
+      <div class="row">
+        <span class="saved" id="savedMsg" aria-live="polite"></span>
+        <button class="btn primary" id="shareBtn">카톡 공유용 복사</button>
+      </div>
+    </section>
+
+    <!-- 지난 기록 -->
+    <section id="viewHistory" class="view" hidden>
+      <div class="stats" id="stats"></div>
+      <ul class="history" id="historyList"></ul>
+      <p class="empty" id="historyEmpty" hidden>아직 기록이 없어요. 오늘 첫 기록을 남겨보세요.</p>
+    </section>
+
+    <!-- 설정 / 백업 -->
+    <section id="viewSettings" class="view" hidden>
+      <div class="card">
+        <span class="card-title">💾 백업</span>
+        <p class="hint">기록은 이 기기의 브라우저에만 저장됩니다. 폰을 바꾸거나 브라우저 데이터를 지우기 전에 꼭 내보내기 해두세요.</p>
+        <div class="row gap">
+          <button class="btn" id="exportBtn">내보내기 (.json)</button>
+          <label class="btn">
+            불러오기
+            <input type="file" id="importInput" accept="application/json,.json" hidden />
+          </label>
+        </div>
+        <p class="hint" id="lastBackup"></p>
+      </div>
+      <div class="card">
+        <span class="card-title">📱 홈 화면에 설치</span>
+        <p class="hint">
+          <b>아이폰</b>: Safari → 공유 버튼 → "홈 화면에 추가"<br />
+          <b>안드로이드</b>: Chrome → ⋮ 메뉴 → "앱 설치" 또는 "홈 화면에 추가"
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" role="tablist">
+    <button class="tab active" data-view="viewWrite" role="tab">✍️<span>기록</span></button>
+    <button class="tab" data-view="viewHistory" role="tab">📚<span>지난 기록</span></button>
+    <button class="tab" data-view="viewSettings" role="tab">⚙️<span>설정</span></button>
+  </nav>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
