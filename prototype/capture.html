@@ -1,0 +1,465 @@
+<title>목실감 캡처</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+/* Layout: one narrow column of controls (달력 → 항목 → 배치) above a live preview of the paper card, sticky action bar at the bottom. */
+:root {
+  --bg: #eef0f3;
+  --surface: #ffffff;
+  --ink: #1b2130;
+  --muted: #5d6576;
+  --line: #d9dde5;
+  --accent: #3461b5;
+  --accent-soft: #e3eafa;
+  --fail: #c62828;
+  --ui: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --card: "Jua", "IBM Plex Sans KR", "Malgun Gothic", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151c; --surface: #1b2029; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2d3442;
+    --accent: #7ea2ec; --accent-soft: #23314d; --fail: #ff7a7a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151c; --surface: #1b2029; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2d3442;
+  --accent: #7ea2ec; --accent-soft: #23314d; --fail: #ff7a7a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 110px;
+}
+.wrap { max-width: 720px; margin: 0 auto; display: grid; gap: 14px; }
+header h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.panel h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0; letter-spacing: 0.04em; display: flex; justify-content: space-between; align-items: center; }
+.panel h2 span { color: var(--accent); font-weight: 600; letter-spacing: 0; }
+
+/* calendar */
+.monthbar { display: flex; align-items: center; justify-content: space-between; }
+.monthbar strong { font-size: 17px; }
+.iconbtn { border: 1px solid var(--line); background: transparent; color: var(--ink); width: 34px; height: 34px; border-radius: 10px; font-size: 16px; cursor: pointer; }
+.iconbtn:disabled { opacity: .35; cursor: default; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+.cal .dow { font-size: 12px; color: var(--muted); padding-bottom: 2px; }
+.cal .dow:first-child { color: var(--fail); }
+.cal .dow:last-child { color: var(--accent); }
+.day {
+  position: relative; aspect-ratio: 1 / 1; max-width: 100%; border-radius: 10px; border: 1px solid transparent;
+  background: transparent; color: var(--ink); font: 500 15px var(--ui); cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.day.has::after { content: ""; position: absolute; left: 50%; bottom: 6px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--accent); }
+.day.today { border-color: var(--accent); }
+.day.sel { background: var(--accent); color: #fff; }
+.day.sel::after { background: #fff; }
+.day.sel .ord { position: absolute; top: 2px; right: 4px; font-size: 10px; font-weight: 700; }
+.day:disabled { color: var(--muted); opacity: .45; cursor: default; }
+.quick { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.chip {
+  border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 999px;
+  padding: 6px 12px; font: 500 14px var(--ui); cursor: pointer;
+}
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.chip:disabled { opacity: .4; cursor: default; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* preview */
+.stage { overflow: hidden; border-radius: 10px; background: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+.scaler { transform-origin: top left; width: max-content; }
+.empty { color: var(--muted); text-align: center; padding: 28px 8px; font-size: 14px; }
+
+/* sticky action bar */
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background: var(--surface); border-top: 1px solid var(--line);
+}
+.bar .in { max-width: 720px; margin: 0 auto; display: flex; gap: 10px; align-items: center; }
+.bar .sum { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); }
+.primary { border: 0; background: var(--accent); color: #fff; font: 600 15px var(--ui); padding: 12px 18px; border-radius: 12px; cursor: pointer; }
+.primary:disabled { opacity: .45; cursor: default; }
+
+/* result overlay */
+.overlay { position: fixed; inset: 0; z-index: 20; background: rgba(10,12,18,.82); overflow-y: auto;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.overlay .in { max-width: 560px; margin: 0 auto; display: grid; gap: 12px; color: #fff; }
+.overlay .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.overlay img { width: 100%; border-radius: 6px; display: block; -webkit-touch-callout: default; }
+.overlay .hint { font-size: 13px; color: #c9cfdb; }
+.ghost { border: 1px solid rgba(255,255,255,.4); background: transparent; color: #fff; font: 500 14px var(--ui); padding: 8px 14px; border-radius: 10px; cursor: pointer; }
+
+/* ---------- paper card (fixed look, matches the 엑셀 sheet) ---------- */
+.sheet { display: flex; gap: 0; font-family: var(--card); color: #222; }
+.sheet.v { flex-direction: column; }
+.paper {
+  width: 600px; padding: 0;
+  background-color: #f3ede3;
+  background-image:
+    radial-gradient(circle at 18% 22%, rgba(150,110,70,.07) 0 18%, transparent 40%),
+    radial-gradient(circle at 82% 70%, rgba(150,110,70,.06) 0 15%, transparent 38%),
+    linear-gradient(180deg, #f6f1e8, #efe7da);
+  border: 1px dashed #b98d64;
+}
+.sheet.h .paper + .paper { border-left: 0; }
+.sheet.v .paper + .paper { border-top: 0; }
+.title { font-size: 28px; text-align: center; padding: 14px 8px 8px; color: #3a2a1c; border-bottom: 1px dashed #b98d64; }
+.r { display: grid; grid-template-columns: 54px 1fr 112px 112px 88px; border-bottom: 1px dashed #c9a27e; min-height: 54px; }
+.r:last-child { border-bottom: 0; }
+.r > div { display: flex; align-items: center; justify-content: center; padding: 6px 8px; text-align: center; border-left: 1px dashed #c9a27e; font-size: 22px; line-height: 1.25; }
+.r > div:first-child { border-left: 0; }
+.r.wk { grid-template-columns: 1fr; }
+.r.wk > div { font-size: 23px; }
+.wk.sun > div { color: #c00000; } .wk.sat > div { color: #2f75b5; }
+.r.hd > div { font-size: 21px; }
+.st { color: #e00000; font-size: 19px !important; }
+.nm.done { text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.r.one { background: rgba(120,90,60,.07); }
+.act { color: #4472c4; }
+.rate { position: relative; }
+.rate .b { position: absolute; left: 0; top: 3px; bottom: 3px; background: #d9c3b0; }
+.rate span { position: relative; }
+.rate.ok span { color: #c00000; }
+.r.total .act { color: #c00000; }
+.r.g { grid-template-columns: 44px 1fr; min-height: 48px; }
+.r.g > div:last-child { font-size: 19px; justify-content: center; padding: 6px 10px; text-wrap: pretty; }
+.r.sec { grid-template-columns: 1fr; min-height: 40px; background: rgba(120,90,60,.10); }
+.r.sec > div { font-size: 19px; color: #6b4f36; }
+.r.n { grid-template-columns: 96px 1fr; }
+.r.n > div:first-child { font-size: 18px; color: #6b4f36; }
+.r.n > div:last-child { font-size: 19px; justify-content: flex-start; text-align: left; }
+
+/* title + gratitude copy */
+.fld { font-size: 13px; color: var(--muted); display: grid; gap: 2px; }
+.fld small { font-size: 12px; opacity: .8; }
+.panel input[type="text"], .panel textarea {
+  width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink);
+  font: 15px/1.55 var(--ui); padding: 10px 12px;
+}
+.panel input[type="text"]:focus-visible, .panel textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.copyrow { display: flex; gap: 8px; align-items: stretch; }
+.copyrow input { flex: 1; font-weight: 600 !important; }
+.cbtn { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); font: 600 14px var(--ui); padding: 0 14px; border-radius: 10px; cursor: pointer; white-space: nowrap; min-height: 40px; }
+.cbtn.done { background: var(--accent); color: #fff; }
+.glist { display: grid; gap: 14px; }
+.gitem { display: grid; gap: 6px; }
+.gitem .ghead { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; }
+.gitem textarea { resize: vertical; min-height: 150px; }
+
+#offscreen { position: fixed; left: -100000px; top: 0; }
+@media (prefers-reduced-motion: no-preference) { .day, .chip { transition: background-color .12s, color .12s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>목실감 캡처</h1>
+    <p>목표&amp;실적은 엑셀 모양 이미지로, 감사일기는 월부 감사일기에 붙여넣을 텍스트로 만들어요. 지금은 11월 1~5일 엑셀 내용을 예시로 넣어뒀어요.</p>
+  </header>
+
+  <section class="panel" aria-label="날짜 선택">
+    <h2>날짜 <span id="selCount"></span></h2>
+    <div class="monthbar">
+      <button class="iconbtn" id="prevM" aria-label="이전 달">‹</button>
+      <strong id="monthLabel"></strong>
+      <button class="iconbtn" id="nextM" aria-label="다음 달">›</button>
+    </div>
+    <div class="cal" id="cal"></div>
+    <div class="quick">
+      <button class="chip" id="qToday">오늘</button>
+      <button class="chip" id="qYest">어제</button>
+      <button class="chip" id="qWeek">이번 주 전체</button>
+      <button class="chip" id="qClear">선택 해제</button>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="항목 선택">
+    <h2>넣을 항목</h2>
+    <div class="chips" id="secChips"></div>
+  </section>
+
+  <section class="panel" aria-label="배치">
+    <h2>여러 날짜일 때</h2>
+    <div class="chips" id="layoutChips"></div>
+    <div class="chips" id="optChips"></div>
+  </section>
+
+  <section class="panel" aria-label="미리보기">
+    <h2>미리보기</h2>
+    <div class="stage" id="stage"><div class="scaler" id="scaler"></div></div>
+  </section>
+
+  <section class="panel" aria-label="글 제목">
+    <h2>글 제목</h2>
+    <label class="fld" for="suffix">제목 뒤에 붙일 말 <small>한 번 입력하면 이 기기에 기억돼요</small></label>
+    <input id="suffix" type="text" autocomplete="off" placeholder="예: 독서TF/재테입2기 5늘부터9십살까지부자되조 워렌부핏">
+    <div class="copyrow">
+      <input id="titleOut" type="text" readonly aria-label="완성된 제목">
+      <button class="cbtn" id="copyTitle">복사</button>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="월부 감사일기">
+    <h2>감사일기 텍스트 <span>월부 감사일기에 붙여넣기용</span></h2>
+    <div id="gratList" class="glist"></div>
+  </section>
+</div>
+
+<div class="bar"><div class="in">
+  <div class="sum" id="barSum"></div>
+  <button class="primary" id="make">이미지 만들기</button>
+</div></div>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="in">
+    <div class="top">
+      <strong id="ovTitle">이미지</strong>
+      <button class="ghost" id="ovClose">닫기</button>
+    </div>
+    <div class="hint">이미지를 길게 눌러 사진에 저장하거나 복사하세요. 그대로 월부닷컴 글쓰기에 붙여넣으면 돼요.</div>
+    <div id="ovImgs" style="display:grid;gap:12px"></div>
+  </div>
+</div>
+<div id="offscreen" aria-hidden="true"></div>
+
+<script>
+const DATA = [{"date": "2026-11-01", "notes": [], "tasks": [{"name": "비전보드 과제 마무리", "strike": true, "goal": 3, "actual": 5, "one": true, "status": "v"}, {"name": "목실감, 칼럼", "strike": true, "goal": 0.3333333333333333, "actual": 0.3333333333333333, "one": false, "status": "v"}, {"name": "독서", "strike": false, "goal": 1, "actual": 0.6666666666666666, "one": false, "status": "실패"}, {"name": "돈독모 복기", "strike": true, "goal": 1, "actual": 1.5, "one": false, "status": "v"}, {"name": "주머니 추가 분석", "strike": false, "goal": 1, "actual": 0.3333333333333333, "one": false, "status": "실패"}, {"name": "재테입 조모임", "strike": true, "goal": 1, "actual": 1.6666666666666665, "one": false, "status": "v"}], "sum": {"actual": 9.5, "goal": 7.333333333333334}, "gratitude": ["위험하지만.. 침대에서 준서랑 같이 잘 수 있었음에 감사합니다. 나중엔 좀 더 가까워질 수 있겠지 ㅎㅎ", "비전보드 연도별 계획과 목표 세우는게 쉬운일이 아니네요. 그런데 구체적으로 생각해볼수록 진짜 그 목표가 이뤄질것만 같은 생각이 듭니다. 감사합니다!", "오늘 재테입 조모임때 우리 59조 다같이 만날 수 있었음에 감사합니다! 많은 이야기 나눠주셔서 저도 다양하게 생각해보고 배우는 시간이 된 것 같아 감사합니다.", "준사 수유시간이랑 겹쳐서 와이프랑 같이 저녁식사를 코로한건지 입으로한건지 모를정도로 정신없이 했습니다... 어쨌든 맛있게 한 음식 다 먹을 수 있었음에 감사합니다 ㅎㅎ", "돈독모 피드백과 다양하게 발전해볼 수 있게 기회 주신 적투튜터님께 감사합니다!"]}, {"date": "2026-11-02", "notes": [], "tasks": [{"name": "조장튜터링 및 정리", "strike": true, "goal": 2, "actual": 2.75, "one": true, "status": "v"}, {"name": "목실감, 칼럼", "strike": true, "goal": 0.3333333333333333, "actual": 0.3333333333333333, "one": false, "status": "v"}, {"name": "독서", "strike": false, "goal": 0.6666666666666666, "actual": 0.5, "one": false, "status": "실패"}, {"name": "전임 및 정리", "strike": true, "goal": 1, "actual": 1, "one": false, "status": "v"}, {"name": "재테입활동", "strike": true, "goal": 0.5, "actual": 1, "one": false, "status": "v"}], "sum": {"actual": 5.583333333333334, "goal": 4.5}, "gratitude": ["내집마련 고민하고 있는 동료에게 이런저런 도움도 주고 강의도 듣게할 수 있었음에 감사합니다. 파이팅!", "2시간 넘게 물 한모금도 안 드시고 조장님들 위해서 튜터링해주신 험블튜터님… 진짜 사랑입니다 ㅎㅎ 감사합니다.", "독모 관련해서 복기할 수 있도록 살펴봐주시는 적투 튜터님 감사합니다!", "오늘도 과제 마무리하느라 고생하신 우리 재테입 59조 조원분들과 3반 조장님들 너무 고생많으셨습니다~!", "독서TF 활동의 의미와 WHY에 대해서 생각할 수 있게 도와주신 너리님 감사합니다!"]}, {"date": "2026-11-03", "notes": [], "tasks": [{"name": "반장 튜터링 및 정리", "strike": true, "goal": 1, "actual": 1.5, "one": true, "status": "v"}, {"name": "목실감, 칼럼, 유튜브", "strike": true, "goal": 0.3333333333333333, "actual": 0.3333333333333333, "one": false, "status": "v"}, {"name": "독서", "strike": false, "goal": 1, "actual": 0.3333333333333333, "one": false, "status": "실패"}, {"name": "재테입 활동", "strike": true, "goal": 0.5, "actual": 0.75, "one": false, "status": "v"}, {"name": "조장튜터링 후기", "strike": true, "goal": 1, "actual": 1, "one": false, "status": "v"}, {"name": "독서TF활동", "strike": false, "goal": 0.5, "actual": 0.2, "one": false, "status": "실패"}], "sum": {"actual": 4.116666666666666, "goal": 4.333333333333333}, "gratitude": ["매일 원씽으로 아침 힘차게 열어주시는 우리 59조 동료분들께 감사합니다 ㅎㅎ 목실감 루틴 시작하신 바다님, 무엔님도 파이팅!!", "언제나 열심히 하시는 우리 3반 재테입 조장님들 너무 감사합니다. 서로서로 따뜻하게 응원해주시는 모습 보면 힘이 납니다!", "매일 따뜻하게 응원주시는 험블튜터님,클로이님 감사합니다~~ 덕분에 우리 재테입 기수 즐겁게 해나갈 수 있는 것 같습니다 ㅎㅎ", "오늘 귀한 시간 내어서 튜터링해주신 이나튜터님 감사합니다!! ㅎㅎ 항상 밝은 모습으로 많은 도움 주시는 모습 보면서 배웁니다 !!", "늦게 퇴근하고 집에 오자마자 컴퓨터 앞에 앉아있는 남편 모습 ㅜㅜ 너무 보기 미울텐데 이해해주는 아내에게 감사합니다."]}, {"date": "2026-11-04", "notes": [], "tasks": [{"name": "3강 완강 및 후기", "strike": false, "goal": 5, "actual": 3, "one": true, "status": "실패"}, {"name": "목실감, 킬럼, 유튜브", "strike": true, "goal": 0.3333333333333333, "actual": 0.3333333333333333, "one": false, "status": "v"}, {"name": "너나위님 라이브", "strike": false, "goal": 2, "actual": 1, "one": false, "status": "실패"}, {"name": "독서", "strike": true, "goal": 0.3333333333333333, "actual": 0.3333333333333333, "one": false, "status": "v"}, {"name": "독서tf 활동/댓글응원", "strike": true, "goal": 1, "actual": 1.5, "one": false, "status": "v"}, {"name": "기타 투자활동", "strike": true, "goal": 0.3333333333333333, "actual": 0.5, "one": false, "status": "v"}], "sum": {"actual": 6.666666666666667, "goal": 9}, "gratitude": ["재테입 3강 업로드날!! ㅎㅎ 올라오자마자 강의 들었는데 진짜 너무 좋습니다… 제가 하고있는 투자가 구조적으로 왜 지금 저의 시점에서 의미있는 것인지 이해할 수 있게 되어 감사합니다.", "주식 강의 관련해서 도움주신 운조님 감사합니다 ㅎㅎ 최고!", "오프모임 준비과정에서 회의실 찾아봐주신 엔스님 감사합니다 !! 뒷북으로 또다른 장소 말씀드렸는데ㅜ 이해해주셔서 감사합니다. 함께 오프모임 준비해주시는 너리님도 ㅎㅎ 너무 감사합니다.", "오랜만에 와이프랑 준서 재우고 둘이 편하게 밥먹을 수 있었음에 감사합니다ㅠ 같이 밥먹으면서 비전보드 봤는데 ㅎㅎ 와이프가 힘이난다고 해줘서 고맙습니다.", "오늘 라이브로 즐거운 퀴즈타임 진행해주신 너나위님께 감사합니다 ㅎㅎ 청포도님 이렇게 열정적이신분인줄 처음 알았습니다 ㅋㅋㅋ 큰웃음 감사합니다."]}, {"date": "2026-11-05", "notes": [], "tasks": [{"name": "강의 완강 및 후기", "strike": true, "goal": 3, "actual": 3.5, "one": true, "status": "v"}, {"name": "목실감, 칼럼, 유튜브", "strike": true, "goal": 0.3333333333333333, "actual": 0.3333333333333333, "one": false, "status": "v"}, {"name": "독서", "strike": false, "goal": 0.5, "actual": null, "one": false, "status": ""}, {"name": "독서TF활동", "strike": true, "goal": 0.5, "actual": 0.75, "one": false, "status": "v"}, {"name": "재테입 활동", "strike": false, "goal": 0.5, "actual": null, "one": false, "status": ""}, {"name": "기타 투자활동", "strike": false, "goal": null, "actual": null, "one": false, "status": ""}], "sum": {"actual": 4.583333333333334, "goal": 4.833333333333334}, "gratitude": []}, {"date": "2026-11-06", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-07", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-08", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-09", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-10", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-11", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-12", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-13", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-14", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-15", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-16", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-17", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-18", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-19", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-20", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-21", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-22", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-23", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-24", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-25", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-26", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-27", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-28", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-29", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}, {"date": "2026-11-30", "notes": [], "tasks": [], "sum": {"actual": 0, "goal": 0}, "gratitude": []}];
+const byDate = Object.fromEntries(DATA.map(d => [d.date, d]));
+const TODAY = "2026-11-05";
+const DOW_EN = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const DOW_KO = ["일","월","화","수","목","금","토"];
+
+const SECTIONS = [
+  { id: "one",   label: "원씽" },
+  { id: "tasks", label: "목표 & 실적" },
+  { id: "total", label: "합계" },
+  { id: "notes", label: "확언·잘한점·아쉬운점·반성할점" },
+  { id: "grat",  label: "감사일기" },
+];
+const LAYOUTS = [
+  { id: "v", label: "한 장에 세로로" },
+  { id: "h", label: "한 장에 가로로" },
+  { id: "each", label: "날짜마다 따로" },
+];
+
+const state = {
+  month: { y: 2026, m: 10 }, // 0-based month
+  selected: ["2026-11-03", "2026-11-04"],
+  secs: new Set(["one","tasks","total"]), // 감사일기는 월부 양식으로 따로 올림
+  layout: "v",
+  title: true,
+};
+
+/* ---------- 제목 / 감사일기 텍스트 ---------- */
+const SUFFIX_KEY = "mokshilgam.suffix";
+const DEFAULT_SUFFIX = "독서TF/재테입2기 5늘부터9십살까지부자되조 워렌부핏";
+function loadSuffix() { try { const v = localStorage.getItem(SUFFIX_KEY); return v == null ? DEFAULT_SUFFIX : v; } catch { return DEFAULT_SUFFIX; } }
+function saveSuffix(v) { try { localStorage.setItem(SUFFIX_KEY, v); } catch {} }
+
+function fmtRange(keys) {
+  const ds = keys.map(parse).sort((a,b) => a-b), runs = [];
+  ds.forEach(d => { const last = runs[runs.length-1]; if (last && (d - last[last.length-1]) === 86400000) last.push(d); else runs.push([d]); });
+  return runs.map(r => {
+    const a = r[0], b = r[r.length-1], A = `${a.getMonth()+1}.${a.getDate()}`;
+    if (r.length === 1) return A;
+    return a.getMonth() === b.getMonth() ? `${A}~${b.getDate()}` : `${A}~${b.getMonth()+1}.${b.getDate()}`;
+  }).join(", ");
+}
+function buildTitle() {
+  if (!state.selected.length) return "";
+  let s = $("suffix").value.trim();
+  if (s && !/^\[.*\]$/.test(s)) s = `[${s}]`;
+  return `${fmtRange(state.selected)} 목실감${s ? " " + s : ""}`;
+}
+const cleanLine = s => String(s).replace(/[\t\r\n]+/g, " ").replace(/\s{2,}/g, " ").trim();
+const gratText = d => d.gratitude.map(cleanLine).filter(Boolean).map((g,i) => `${i+1}. ${g}`).join("\n");
+
+function renderTitle() { $("titleOut").value = buildTitle() || "날짜를 고르면 제목이 만들어져요"; }
+function renderGrat() {
+  const items = state.selected.map(k => [k, byDate[k]]).filter(([,d]) => d.gratitude.length);
+  $("gratList").innerHTML = items.length ? items.map(([k,d]) => {
+    const dt = parse(k);
+    return `<div class="gitem">
+      <div class="ghead"><span>${dt.getMonth()+1}월 ${dt.getDate()}일 (${DOW_KO[dt.getDay()]})</span><button class="cbtn" data-copy="g-${k}">복사</button></div>
+      <textarea id="g-${k}" readonly rows="${Math.min(12, d.gratitude.length * 2 + 1)}">${esc(gratText(d))}</textarea>
+    </div>`;
+  }).join("") : `<div class="empty" style="padding:12px 0">선택한 날짜에 엑셀 감사일기가 없어요.</div>`;
+}
+
+async function copyFrom(el, btn) {
+  const text = el.value;
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch {}
+  if (!ok) { el.focus(); el.select(); try { ok = document.execCommand("copy"); } catch {} }
+  const old = btn.textContent;
+  btn.textContent = ok ? "복사됨" : "길게 눌러 복사";
+  btn.classList.toggle("done", ok);
+  setTimeout(() => { btn.textContent = old; btn.classList.remove("done"); }, 1600);
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-copy]"); if (!b) return;
+  copyFrom($(b.dataset.copy), b);
+});
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+const iso = (y,m,d) => `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+const parse = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
+const hrs = v => (typeof v === "number" ? v.toFixed(2) + "시간" : "");
+const pct = (a,g) => (typeof a === "number" && typeof g === "number" && g > 0) ? a / g : null;
+
+/* ---------- calendar ---------- */
+function renderCal() {
+  const { y, m } = state.month;
+  $("monthLabel").textContent = `${y}년 ${m+1}월`;
+  const first = new Date(y, m, 1).getDay();
+  const days = new Date(y, m+1, 0).getDate();
+  let html = DOW_KO.map(d => `<div class="dow">${d}</div>`).join("");
+  for (let i = 0; i < first; i++) html += "<div></div>";
+  for (let d = 1; d <= days; d++) {
+    const k = iso(y,m,d);
+    const has = !!byDate[k] && (byDate[k].tasks.length || byDate[k].gratitude.length);
+    const idx = state.selected.indexOf(k);
+    const cls = ["day", has && "has", idx >= 0 && "sel", k === TODAY && "today"].filter(Boolean).join(" ");
+    html += `<button class="${cls}" data-k="${k}" ${has ? "" : "disabled"} aria-pressed="${idx>=0}" aria-label="${m+1}월 ${d}일">${d}${idx>=0 && state.selected.length>1 ? `<span class="ord">${idx+1}</span>` : ""}</button>`;
+  }
+  $("cal").innerHTML = html;
+  $("prevM").disabled = true; $("nextM").disabled = true; // 예시는 11월만
+  $("selCount").textContent = state.selected.length ? `${state.selected.length}일 선택` : "";
+}
+$("cal").addEventListener("click", e => {
+  const b = e.target.closest(".day"); if (!b || b.disabled) return;
+  const k = b.dataset.k, i = state.selected.indexOf(k);
+  if (i >= 0) state.selected.splice(i, 1); else state.selected.push(k);
+  state.selected.sort();
+  update();
+});
+function pickDays(list) { state.selected = list.filter(k => byDate[k]).sort(); update(); }
+$("qToday").onclick = () => pickDays([TODAY]);
+$("qYest").onclick = () => { const d = parse(TODAY); d.setDate(d.getDate()-1); pickDays([iso(d.getFullYear(), d.getMonth(), d.getDate())]); };
+$("qWeek").onclick = () => { const t = parse(TODAY), out = []; for (let i = 0; i < 7; i++) { const d = new Date(t); d.setDate(t.getDate() - t.getDay() + i); out.push(iso(d.getFullYear(), d.getMonth(), d.getDate())); } pickDays(out); };
+$("qClear").onclick = () => pickDays([]);
+
+/* ---------- chips ---------- */
+function renderChips() {
+  const sel = state.selected.map(k => byDate[k]);
+  const avail = {
+    one: sel.some(d => d.tasks.some(t => t.one)),
+    tasks: sel.some(d => d.tasks.some(t => !t.one)),
+    total: sel.some(d => d.sum),
+    notes: sel.some(d => d.notes.length),
+    grat: sel.some(d => d.gratitude.length),
+  };
+  $("secChips").innerHTML = SECTIONS.map(s =>
+    `<button class="chip" data-s="${s.id}" aria-pressed="${state.secs.has(s.id)}" ${sel.length && !avail[s.id] ? "disabled title='선택한 날짜에 내용이 없어요'" : ""}>${s.label}</button>`).join("");
+  $("layoutChips").innerHTML = LAYOUTS.map(l =>
+    `<button class="chip" data-l="${l.id}" aria-pressed="${state.layout===l.id}">${l.label}</button>`).join("");
+  $("optChips").innerHTML = `<button class="chip" data-o="title" aria-pressed="${state.title}">날짜 제목 붙이기</button>`;
+}
+$("secChips").addEventListener("click", e => { const b = e.target.closest("[data-s]"); if (!b || b.disabled) return; const s = b.dataset.s; state.secs.has(s) ? state.secs.delete(s) : state.secs.add(s); update(); });
+$("layoutChips").addEventListener("click", e => { const b = e.target.closest("[data-l]"); if (!b) return; state.layout = b.dataset.l; update(); });
+$("optChips").addEventListener("click", e => { const b = e.target.closest("[data-o]"); if (!b) return; state.title = !state.title; update(); });
+
+/* ---------- paper card ---------- */
+function cardHTML(k) {
+  const d = byDate[k], dt = parse(k), dow = dt.getDay(), S = state.secs;
+  const row = t => {
+    const r = pct(t.actual, t.goal), done = t.status === "v";
+    const bar = r == null ? "" : `<i class="b" style="width:${Math.min(r,1)*100}%"></i>`;
+    return `<div class="r${t.one ? " one" : ""}">
+      <div class="st">${esc(t.status)}</div>
+      <div class="nm${done ? " done" : ""}">${esc(t.name)}</div>
+      <div>${hrs(t.goal)}</div>
+      <div class="act">${hrs(t.actual)}</div>
+      <div class="rate${r != null && r >= 1 ? " ok" : ""}">${bar}<span>${r == null ? "" : Math.round(r*100) + "%"}</span></div>
+    </div>`;
+  };
+  let h = `<div class="paper">`;
+  if (state.title) h += `<div class="title">${dt.getMonth()+1}월 ${dt.getDate()}일 (${DOW_KO[dow]}) 목실감</div>`;
+  h += `<div class="r wk${dow===0?" sun":dow===6?" sat":""}"><div>${DOW_EN[dow]}</div></div>`;
+  const showTasks = S.has("one") || S.has("tasks") || S.has("total");
+  if (showTasks) h += `<div class="r hd"><div></div><div>${dt.getDate()}</div><div>목표</div><div>실제</div><div>달성률</div></div>`;
+  d.tasks.forEach(t => { if ((t.one && S.has("one")) || (!t.one && S.has("tasks"))) h += row(t); });
+  if (S.has("total") && d.sum) {
+    const r = pct(d.sum.actual, d.sum.goal);
+    h += `<div class="r total"><div></div><div>합계</div><div>${hrs(d.sum.goal)}</div><div class="act">${hrs(d.sum.actual)}</div>
+      <div class="rate">${r==null?"":`<i class="b" style="width:${Math.min(r,1)*100}%"></i>`}<span>${r==null?"":Math.round(r*100)+"%"}</span></div></div>`;
+  }
+  if (S.has("notes") && d.notes.length) d.notes.forEach(n => { h += `<div class="r n"><div>${esc(n.k)}</div><div>${esc(n.v)}</div></div>`; });
+  if (S.has("grat") && d.gratitude.length) {
+    h += `<div class="r sec"><div>감사일기</div></div>`;
+    d.gratitude.forEach((g,i) => { h += `<div class="r g"><div>${i+1}</div><div>${esc(g)}</div></div>`; });
+  }
+  return h + `</div>`;
+}
+function sheetHTML(keys, layout) {
+  return `<div class="sheet ${layout === "h" ? "h" : "v"}">${keys.map(cardHTML).join("")}</div>`;
+}
+
+/* ---------- preview ---------- */
+function renderPreview() {
+  const sc = $("scaler");
+  if (!state.selected.length) { sc.style.transform = ""; $("stage").style.height = ""; sc.innerHTML = `<div class="empty">달력에서 날짜를 눌러 골라주세요.</div>`; sc.style.width = "100%"; return; }
+  sc.style.width = "";
+  const keys = state.selected;
+  sc.innerHTML = state.layout === "each"
+    ? `<div style="display:grid;gap:16px">${keys.map(k => sheetHTML([k], "v")).join("")}</div>`
+    : sheetHTML(keys, state.layout);
+  fit();
+}
+function fit() {
+  const sc = $("scaler"), stage = $("stage");
+  if (!state.selected.length) return;
+  sc.style.transform = "none";
+  const w = sc.scrollWidth, h = sc.scrollHeight, avail = stage.clientWidth;
+  const s = Math.min(1, avail / w);
+  sc.style.transform = `scale(${s})`;
+  stage.style.height = Math.ceil(h * s) + "px";
+}
+addEventListener("resize", fit);
+
+function renderBar() {
+  const n = state.selected.length;
+  const imgs = n === 0 ? 0 : state.layout === "each" ? n : 1;
+  $("barSum").textContent = n ? `${state.selected.map(k => { const d = parse(k); return `${d.getMonth()+1}/${d.getDate()}`; }).join(", ")} · 이미지 ${imgs}장` : "날짜를 골라주세요";
+  $("make").disabled = !n || state.secs.size === 0;
+}
+
+function update() { renderCal(); renderChips(); renderPreview(); renderBar(); renderTitle(); renderGrat(); }
+
+$("suffix").value = loadSuffix();
+$("suffix").addEventListener("input", () => { saveSuffix($("suffix").value); renderTitle(); });
+$("copyTitle").onclick = () => { if (state.selected.length) copyFrom($("titleOut"), $("copyTitle")); };
+
+/* ---------- capture ---------- */
+$("make").onclick = async () => {
+  const btn = $("make"); btn.disabled = true; btn.textContent = "만드는 중…";
+  try {
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    const groups = state.layout === "each" ? state.selected.map(k => [k]) : [state.selected];
+    const off = $("offscreen"), out = [];
+    for (const g of groups) {
+      off.innerHTML = sheetHTML(g, state.layout === "each" ? "v" : state.layout);
+      const canvas = await html2canvas(off.firstElementChild, { scale: 3, backgroundColor: "#f3ede3", logging: false });
+      out.push({ url: canvas.toDataURL("image/png"), label: g.map(k => { const d = parse(k); return `${d.getMonth()+1}/${d.getDate()}`; }).join(", ") });
+    }
+    off.innerHTML = "";
+    $("ovTitle").textContent = `이미지 ${out.length}장`;
+    $("ovImgs").innerHTML = out.map(o => `<figure style="margin:0;display:grid;gap:6px"><img src="${o.url}" alt="${esc(o.label)} 목실감"><figcaption class="hint">${esc(o.label)}</figcaption></figure>`).join("");
+    $("overlay").hidden = false;
+  } catch (err) {
+    $("barSum").textContent = "이미지를 만들지 못했어요. 페이지를 새로고침한 뒤 다시 눌러주세요.";
+  } finally { btn.textContent = "이미지 만들기"; renderBar(); }
+};
+$("ovClose").onclick = () => { $("overlay").hidden = true; $("ovImgs").innerHTML = ""; };
+
+update();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+</script>

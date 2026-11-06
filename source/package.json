@@ -1,0 +1,1 @@
+{"name":"mokshilgam-app","private":true,"type":"module","version":"0.1.0","dependencies":{"@azure/msal-browser":"^3.27.0","esbuild":"^0.24.0","html2canvas":"^1.4.1","jszip":"^3.10.1"}}
