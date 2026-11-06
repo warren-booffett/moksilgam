@@ -1,5 +1,5 @@
 // 앱 화면 파일만 캐시 (엑셀 데이터는 캐시하지 않음). 네트워크 우선, 오프라인이면 캐시.
-const CACHE = "mok-shell-v5";
+const CACHE = "mok-shell-v6";
 const SHELL = ["./", "index.html", "app.js", "app.css", "manifest.webmanifest", "icon.svg", "scene-goal.png", "scene-grat.png"];
 self.addEventListener("install", e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener("activate", e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())));
