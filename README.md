@@ -35,7 +35,7 @@ node test/roundtrip.mjs <원본.xlsx> <결과.xlsx> <비교.json>   # 엔진 읽
 Pages 설정: Settings → Pages → Source `Deploy from a branch` → Branch `claude/trusting-planck-5r8ln3` / `(root)`.
 빌드한 결과를 이 브랜치에 푸시하면 자동으로 다시 배포됩니다.
 
-**수정 후 재배포할 때는 `source/public/sw.js`의 `CACHE` 버전(`mok-shell-v4` → `v5`)을 올려야** 설치된 앱이 새 버전을 받아옵니다.
+**수정 후 재배포할 때는 `source/public/sw.js`의 `CACHE` 버전(`mok-shell-v5` → `v6`)을 올려야** 설치된 앱이 새 버전을 받아옵니다.
 
 ## 휴대폰에 설치
 - **아이폰**: Safari로 접속 → 공유 버튼 → "홈 화면에 추가"

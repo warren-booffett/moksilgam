@@ -11,7 +11,7 @@ export const oneDriveConfigured = () => !!CLIENT_ID;
 async function getMsal() {
   if (!msal) {
     msal = new PublicClientApplication({
-      auth: { clientId: CLIENT_ID, authority: AUTHORITY, redirectUri: location.origin + location.pathname },
+      auth: { clientId: CLIENT_ID, authority: AUTHORITY, redirectUri: location.origin + location.pathname.replace(/index\.html$/, "") }, // index.html로 열어도 Azure에 등록된 폴더 주소로 맞춤
       cache: { cacheLocation: "localStorage" },
     });
     await msal.initialize();
