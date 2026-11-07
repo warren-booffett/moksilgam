@@ -120,6 +120,7 @@ async function connect(source) {
   try {
     const { data, version } = await source.load();
     await adopt(data, version);
+    if (source.kind === "onedrive") store.set("connected", true); // 다음에 켤 때 로그인 버튼 대신 '불러오는 중'을 보여줌
     setStatus("ok", `${source.label} · 불러옴 ${timeNow()}`);
   } catch (e) { setStatus("err", e.message || "불러오지 못했어요"); throw e; }
 }
@@ -197,6 +198,7 @@ const ICON = {
 
 function render() {
   const app = $("#app");
+  if (!S.wb && S.booting) { app.innerHTML = bootHTML(); return; }
   if (!S.wb) { app.innerHTML = welcomeHTML(); bindWelcome(); return; }
   app.innerHTML = `
     <div class="shell">
@@ -223,6 +225,11 @@ function render() {
 }
 
 /* ----- 시작 화면 ----- */
+// 이미 연결해 둔 기기: 로그인 버튼 대신 불러오는 중 화면 (로그인 확인·엑셀 받기가 끝나면 바로 기록 화면)
+function bootHTML() {
+  return `<div class="shell"><div class="welcome"><h1>목실감</h1>
+    <p class="sync busy" style="justify-self:start"><i></i><span>OneDrive에서 엑셀 불러오는 중…</span></p></div></div>`;
+}
 function welcomeHTML() {
   const od = oneDriveConfigured();
   return `<div class="shell"><div class="welcome">
@@ -709,7 +716,7 @@ async function openSettings() {
     if (e.target === ov || e.target.closest("[data-x]")) return close();
     const id = e.target.closest("button")?.id;
     if (id === "login") signIn();
-    if (id === "logout") signOut();
+    if (id === "logout") { store.set("connected", false); signOut(); }
     if (id === "pathSave") { store.set("path", $("#pathIn").value.trim()); close(); connect(oneDriveSource(store.get("path", DEFAULT_PATH))).catch(() => {}); }
     if (id === "reload") { if (dirtyCount()) { toast("저장 안 한 기록이 있어요. 먼저 저장해 주세요"); return; } close(); connect(S.source).catch(() => {}); }
   });
@@ -751,10 +758,17 @@ addEventListener("focus", pullIfChanged);
 /* ---------- 시작 ---------- */
 (async function boot() {
   S.drafts = store.get("drafts", {}) || {};
+  S.booting = oneDriveConfigured() && store.get("connected", false);
   render();
   if (oneDriveConfigured()) {
-    try { const acct = await signedInAccount(); if (acct) await connect(oneDriveSource(store.get("path", DEFAULT_PATH))); }
-    catch (e) { const el = $("#wErr"); if (el) el.textContent = e.message; }
+    let err = "";
+    try {
+      const acct = await signedInAccount();
+      if (acct) await connect(oneDriveSource(store.get("path", DEFAULT_PATH)));
+      else store.set("connected", false);
+    } catch (e) { err = e.message || "불러오지 못했어요"; }
+    S.booting = false;
+    if (!S.wb) { render(); const el = $("#wErr"); if (el && err) el.textContent = err; }
   }
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 })();

@@ -1,5 +1,5 @@
 // 엑셀 파일을 어디서 읽고 어디에 저장할지: OneDrive(정식) 또는 기기에서 직접 연 파일(체험용)
-import { PublicClientApplication, InteractionRequiredAuthError } from "@azure/msal-browser";
+import { PublicClientApplication } from "@azure/msal-browser";
 import { CLIENT_ID, AUTHORITY, SCOPES } from "./config.js";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -13,6 +13,8 @@ async function getMsal() {
     msal = new PublicClientApplication({
       auth: { clientId: CLIENT_ID, authority: AUTHORITY, redirectUri: location.origin + location.pathname.replace(/index\.html$/, "") }, // index.html로 열어도 Azure에 등록된 폴더 주소로 맞춤
       cache: { cacheLocation: "localStorage" },
+      // 보이지 않는 창으로 조용히 갱신할 때 기다리는 시간 (기본 10초 → 5초). 막혀 있으면 빨리 포기하고 다시 로그인으로 넘어감
+      system: { iframeHashTimeout: 5000 },
     });
     await msal.initialize();
     const res = await msal.handleRedirectPromise();
@@ -26,7 +28,11 @@ export async function signedInAccount() {
   if (!oneDriveConfigured()) return null;
   return (await getMsal()).getActiveAccount();
 }
-export async function signIn() { await (await getMsal()).loginRedirect({ scopes: SCOPES, prompt: "select_account" }); }
+// 예전에 쓰던 계정이 있으면 계정 고르기 화면 없이 그 계정으로 바로 진행
+export async function signIn() {
+  const m = await getMsal(), known = m.getActiveAccount() || m.getAllAccounts()[0];
+  await m.loginRedirect(known ? { scopes: SCOPES, loginHint: known.username } : { scopes: SCOPES, prompt: "select_account" });
+}
 export async function signOut() { const m = await getMsal(); await m.logoutRedirect({ account: m.getActiveAccount() }); }
 
 async function token() {
@@ -34,7 +40,20 @@ async function token() {
   const account = m.getActiveAccount();
   if (!account) throw new Error("먼저 Microsoft 계정으로 로그인해 주세요");
   try { return (await m.acquireTokenSilent({ scopes: SCOPES, account })).accessToken; }
-  catch (e) { if (e instanceof InteractionRequiredAuthError) { await m.acquireTokenRedirect({ scopes: SCOPES }); } throw e; }
+  catch (e) {
+    // 브라우저 앱(SPA)의 갱신 토큰은 Microsoft 정책상 24시간이라, 그 뒤엔 조용한 갱신이 실패할 수 있음
+    // (폰 브라우저가 로그인 창 쿠키를 막는 경우 포함). 이때 같은 계정으로 다시 다녀오면
+    // Microsoft에 '로그인 상태 유지'가 되어 있는 한 비밀번호 없이 바로 돌아옴.
+    // 설정 문제로 무한 반복하지 않도록 2분에 한 번만 자동으로 다녀옴.
+    if (!navigator.onLine) throw new Error("인터넷 연결을 확인해 주세요");
+    const last = +(sessionStorage.getItem("mok.reauth") || 0);
+    if (Date.now() - last > 120000) {
+      sessionStorage.setItem("mok.reauth", String(Date.now()));
+      await m.acquireTokenRedirect({ scopes: SCOPES, account, loginHint: account.username });
+      return new Promise(() => {}); // 페이지가 Microsoft로 넘어가는 동안 화면을 그대로 둠
+    }
+    throw e;
+  }
 }
 
 async function graph(path, init = {}) {
