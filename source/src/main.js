@@ -1,7 +1,6 @@
 import JSZip from "jszip";
-import html2canvas from "html2canvas";
 import { openWorkbook, readMonth, readSummary, writeDay, saveWorkbook, derive, dayTotals, hasMonth } from "./workbook.js";
-import { oneDriveConfigured, signedInAccount, signIn, signOut, oneDriveSource, localFileSource } from "./sources.js";
+import { oneDriveConfigured, signedInAccount, signIn, signOut, reauth, oneDriveSource, localFileSource } from "./sources.js";
 import { DEFAULT_PATH } from "./config.js";
 
 /* ---------- 작은 유틸 ---------- */
@@ -22,6 +21,26 @@ const pct = r => (r == null ? "–" : Math.round(r * 100) + "%");
 const store = {
   get(k, d) { try { const v = localStorage.getItem("mok." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem("mok." + k, JSON.stringify(v)); } catch {} },
+};
+
+// 마지막으로 받은 엑셀 파일을 기기에 보관 (켤 때 로그인·다운로드를 기다리지 않고 바로 화면을 띄우기 위함)
+const idb = {
+  db: null,
+  open() {
+    return (this.db ||= new Promise((res, rej) => {
+      const r = indexedDB.open("mok", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("kv");
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    }));
+  },
+  async get(k) {
+    try { const db = await this.open(); return await new Promise((res, rej) => { const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result ?? null); q.onerror = () => rej(q.error); }); }
+    catch { return null; }
+  },
+  async set(k, v) {
+    try { const db = await this.open(); await new Promise((res, rej) => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
+    catch {}
+  },
 };
 
 /* ---------- 상태 ---------- */
@@ -126,6 +145,7 @@ async function connect(source) {
 }
 async function adopt(data, version) {
   S.wb = await openWorkbook(JSZip, data);
+  if (S.source?.kind === "onedrive") idb.set("wb", { data, version, path: S.source.path, at: Date.now() });
   S.version = version; S.months = {}; S.summary = {};
   const yearGuess = /(20\d\d)/.exec(S.source.label)?.[1];
   // 1월 시트의 첫 날짜로 연도 확인
@@ -139,9 +159,10 @@ async function adopt(data, version) {
 
 async function saveAll() {
   if (!dirtyCount() || !S.source) return;
-  setStatus("busy", "엑셀에 저장하는 중…");
   const pending = JSON.parse(JSON.stringify(S.drafts));
   try {
+    if (S.status.kind === "login") throw Object.assign(new Error("로그인이 필요해요"), { needLogin: true }); // 이미 확인됨 → 기다리지 않고 바로
+    setStatus("busy", "엑셀에 저장하는 중…");
     lastPull = Date.now();
     for (let attempt = 0; attempt < 3; attempt++) {
       // OneDrive: 항상 최신 파일을 받아서 그 위에 오늘 고친 날짜만 덮어씀 (다른 기기에서 바꾼 내용 보존)
@@ -168,6 +189,14 @@ async function saveAll() {
     }
     throw new Error("다른 곳에서 파일이 계속 바뀌고 있어요. 잠시 뒤 다시 저장해 주세요.");
   } catch (e) {
+    if (e.needLogin) {
+      // 적은 기록은 기기에 남아 있음 → Microsoft에 다녀온 뒤 자동으로 이어서 저장
+      store.set("saveAfterLogin", true);
+      setStatus("login", "로그인 확인 후 저장할게요");
+      toast("로그인을 확인하고 이어서 저장할게요");
+      await reauth();
+      return;
+    }
     setStatus("err", e.message || "저장하지 못했어요");
     toast(e.message || "저장하지 못했어요");
   }
@@ -554,6 +583,7 @@ async function renderFiles() {
   for (const g of groups) {
     off.innerHTML = shotHTML(g, sh.layout);
     await Promise.all([...off.querySelectorAll("img")].map(i => i.decode().catch(() => {}))); // 그림 로드 대기
+    const { default: html2canvas } = await import("html2canvas"); // 올리기에서만 쓰는 큰 라이브러리라 필요할 때 불러옴
     const canvas = await html2canvas(off.firstElementChild, { scale: 3, backgroundColor: "#c3eef3", logging: false });
     const blob = await new Promise(r => canvas.toBlob(r, "image/png"));
     files.push(new File([blob], `목실감_${g.map(k => k.slice(5).replace("-", "")).join("_")}.png`, { type: "image/png" }));
@@ -725,6 +755,7 @@ async function openSettings() {
 
 /* ---------- 전역 이벤트 ---------- */
 document.addEventListener("click", async e => {
+  if (e.target.closest("#sync") && S.status.kind === "login") { reauth(); return; }
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.tab) { S.tab = b.dataset.tab; if (S.tab === "share") S.share.month = monthOf(S.date); render(); scrollTo(0, 0); }
   else if (b.dataset.date) { S.date = b.dataset.date; render(); }
@@ -734,41 +765,77 @@ document.addEventListener("click", async e => {
 });
 addEventListener("beforeunload", e => { if (dirtyCount()) { e.preventDefault(); e.returnValue = ""; } });
 
-// 앱을 다시 화면에 띄우면(다른 앱 갔다 오기, 폰 잠금 해제) OneDrive 엑셀을 새로 읽어서
-// PC 엑셀에서 적은 내용을 가져옴. 저장 안 한 기록이 있으면 덮어쓰지 않도록 건너뜀.
-let lastPull = Date.now(), pulling = false;
-async function pullIfChanged() {
-  if (pulling || !S.source || S.source.kind !== "onedrive" || dirtyCount() || S.status.kind === "busy") return;
-  if (Date.now() - lastPull < 20000) return;
-  pulling = true; lastPull = Date.now();
-  try {
-    const { data, version } = await S.source.load();
-    if (version && version === S.version) { setStatus("ok", `${S.source.label} · 최신 상태 ${timeNow()}`); return; }
-    const keep = { tab: S.tab, y: scrollY };
-    await adopt(data, version);
-    S.tab = keep.tab; render(); scrollTo(0, keep.y);
-    setStatus("ok", `${S.source.label} · 엑셀 변경 반영 ${timeNow()}`);
-    toast("엑셀에서 바뀐 내용을 불러왔어요");
-  } catch (e) { setStatus("err", e.message || "다시 불러오지 못했어요"); }
-  finally { pulling = false; }
+// 뒤에서 OneDrive 최신 파일 확인: 켤 때, 앱을 다시 화면에 띄울 때(다른 앱 갔다 오기, 폰 잠금 해제).
+// 저장 안 한 기록은 날짜별로 그대로 위에 얹혀 보이므로 최신 파일을 받아도 사라지지 않음.
+let lastPull = 0, syncing = false, pendingFresh = null;
+const typing = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !!a.closest("#main, .overlay"); };
+async function applyFresh(data, version) {
+  // 입력 중이면 화면을 다시 그리지 않고, 입력칸에서 손을 떼면 반영
+  if (typing() || $(".overlay")) { pendingFresh = { data, version }; return false; }
+  pendingFresh = null;
+  const keep = { tab: S.tab, y: scrollY };
+  await adopt(data, version);
+  S.tab = keep.tab; render(); scrollTo(0, keep.y);
+  return true;
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pullIfChanged(); });
-addEventListener("focus", pullIfChanged);
+document.addEventListener("focusout", () => setTimeout(() => { if (pendingFresh && !typing() && !$(".overlay")) { const p = pendingFresh; applyFresh(p.data, p.version).then(ok => ok && setStatus("ok", `${S.source.label} · 최신 반영 ${timeNow()}`)); } }, 400));
+async function syncNow({ force = false } = {}) {
+  if (syncing || !S.source || S.source.kind !== "onedrive" || S.status.kind === "busy") return;
+  if (!force && Date.now() - lastPull < 20000) return;
+  syncing = true; lastPull = Date.now();
+  try {
+    if (!(await signedInAccount())) throw Object.assign(new Error("로그인이 필요해요"), { needLogin: true });
+    const { data, version } = await S.source.load();
+    store.set("connected", true);
+    if (version && version === S.version) setStatus("ok", `${S.source.label} · 최신 상태 ${timeNow()}`);
+    else {
+      const changed = S.version != null;
+      const applied = await applyFresh(data, version);
+      setStatus("ok", `${S.source.label} · ${applied ? "최신 반영" : "최신 받음"} ${timeNow()}`);
+      if (applied && changed) toast("엑셀에서 바뀐 내용을 불러왔어요");
+    }
+    if (store.get("saveAfterLogin", false)) { store.set("saveAfterLogin", false); if (dirtyCount()) { await saveAll(); render(); } }
+  } catch (e) {
+    if (e.needLogin) setStatus("login", "로그인 필요 · 눌러서 연결");
+    else setStatus("err", (e.message || "최신 파일을 확인하지 못했어요") + " · 저장된 기록 표시 중");
+  } finally { syncing = false; }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncNow(); });
+addEventListener("focus", () => syncNow());
 
 /* ---------- 시작 ---------- */
 (async function boot() {
   S.drafts = store.get("drafts", {}) || {};
-  S.booting = oneDriveConfigured() && store.get("connected", false);
+  const returning = /[#&?](code|error)=/.test(location.hash + location.search); // Microsoft에서 막 돌아온 경우
+  S.booting = oneDriveConfigured() && (store.get("connected", false) || returning);
   render();
-  if (oneDriveConfigured()) {
-    let err = "";
-    try {
-      const acct = await signedInAccount();
-      if (acct) await connect(oneDriveSource(store.get("path", DEFAULT_PATH)));
-      else store.set("connected", false);
-    } catch (e) { err = e.message || "불러오지 못했어요"; }
-    S.booting = false;
-    if (!S.wb) { render(); const el = $("#wErr"); if (el && err) el.textContent = err; }
-  }
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+  if (!oneDriveConfigured()) return;
+  const path = store.get("path", DEFAULT_PATH);
+
+  // 1) 기기에 보관한 마지막 엑셀로 바로 화면 띄우기 (로그인·다운로드 안 기다림)
+  if (store.get("connected", false)) {
+    const cached = await idb.get("wb");
+    if (cached?.data && cached.path === path) {
+      try {
+        S.source = oneDriveSource(path);
+        await adopt(cached.data, cached.version);
+        setStatus("check", "최신 확인 중…"); // 화면은 바로 쓸 수 있음 (저장 등 막지 않음)
+      } catch { S.wb = null; S.source = null; }
+    }
+  }
+  // 2) 뒤에서 로그인 확인 + 최신 파일 받기
+  if (S.wb) { S.booting = false; syncNow({ force: true }); return; }
+  let err = "";
+  try {
+    const acct = await signedInAccount();
+    if (acct) await connect(oneDriveSource(path));
+    else store.set("connected", false);
+  } catch (e) {
+    // 보관된 파일이 없을 때만 바로 Microsoft에 다녀옴 (보여줄 화면이 없으므로)
+    if (e.needLogin && (await reauth({ auto: true })) === false) err = "로그인이 필요해요. 아래 버튼으로 연결해 주세요.";
+    else err = e.message || "불러오지 못했어요";
+  }
+  S.booting = false;
+  if (!S.wb) { render(); const el = $("#wErr"); if (el && err) el.textContent = err; }
 })();

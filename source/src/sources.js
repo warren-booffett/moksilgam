@@ -38,22 +38,30 @@ export async function signOut() { const m = await getMsal(); await m.logoutRedir
 async function token() {
   const m = await getMsal();
   const account = m.getActiveAccount();
-  if (!account) throw new Error("먼저 Microsoft 계정으로 로그인해 주세요");
+  if (!account) throw needLogin();
   try { return (await m.acquireTokenSilent({ scopes: SCOPES, account })).accessToken; }
   catch (e) {
     // 브라우저 앱(SPA)의 갱신 토큰은 Microsoft 정책상 24시간이라, 그 뒤엔 조용한 갱신이 실패할 수 있음
-    // (폰 브라우저가 로그인 창 쿠키를 막는 경우 포함). 이때 같은 계정으로 다시 다녀오면
-    // Microsoft에 '로그인 상태 유지'가 되어 있는 한 비밀번호 없이 바로 돌아옴.
-    // 설정 문제로 무한 반복하지 않도록 2분에 한 번만 자동으로 다녀옴.
+    // (폰 브라우저가 로그인 창 쿠키를 막는 경우 포함). 여기서는 페이지를 옮기지 않고 알리기만 하고,
+    // Microsoft에 다녀올지(reauth)는 화면 쪽에서 정함 (쓰는 도중에 갑자기 화면이 넘어가지 않도록).
     if (!navigator.onLine) throw new Error("인터넷 연결을 확인해 주세요");
-    const last = +(sessionStorage.getItem("mok.reauth") || 0);
-    if (Date.now() - last > 120000) {
-      sessionStorage.setItem("mok.reauth", String(Date.now()));
-      await m.acquireTokenRedirect({ scopes: SCOPES, account, loginHint: account.username });
-      return new Promise(() => {}); // 페이지가 Microsoft로 넘어가는 동안 화면을 그대로 둠
-    }
-    throw e;
+    throw needLogin();
   }
+}
+const needLogin = () => Object.assign(new Error("로그인이 필요해요"), { needLogin: true });
+
+// 같은 계정으로 Microsoft에 다녀오기. '로그인 상태 유지'가 되어 있으면 비밀번호 없이 바로 돌아옴.
+// 설정 문제로 무한 반복하지 않도록 자동 호출(auto)은 2분에 한 번만.
+export async function reauth({ auto = false } = {}) {
+  if (auto) {
+    const last = +(sessionStorage.getItem("mok.reauth") || 0);
+    if (Date.now() - last < 120000) return false;
+    sessionStorage.setItem("mok.reauth", String(Date.now()));
+  }
+  const m = await getMsal(), account = m.getActiveAccount() || m.getAllAccounts()[0];
+  if (!account) await signIn();
+  else await m.acquireTokenRedirect({ scopes: SCOPES, account, loginHint: account.username });
+  return new Promise(() => {}); // 페이지가 Microsoft로 넘어가는 동안 화면을 그대로 둠
 }
 
 async function graph(path, init = {}) {
@@ -66,6 +74,7 @@ export function oneDriveSource(filePath) {
   let itemId = null;
   return {
     kind: "onedrive",
+    path: filePath,
     label: filePath.split("/").pop(),
     async load() {
       const res = await graph(`/me/drive/root:/${encPath(filePath)}?select=id,name,eTag,size,lastModifiedDateTime,@microsoft.graph.downloadUrl`);

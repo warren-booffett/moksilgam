@@ -17,8 +17,10 @@ for (const f of fs.readdirSync("public")) fs.copyFileSync(path.join("public", f)
 fs.copyFileSync("index.html", path.join(out, "index.html"));
 fs.copyFileSync("src/app.css", path.join(out, "app.css"));
 if (sample) fs.copyFileSync(sample, path.join(out, "sample.xlsx"));
+// 올리기 화면용 라이브러리(html2canvas)는 따로 쪼개서 필요할 때만 받음. 지난 빌드 조각은 지움
+fs.rmSync(path.join(out, "chunks"), { recursive: true, force: true });
 
-const opts = { absWorkingDir: process.cwd(), entryPoints: ["src/main.js"], bundle: true, format: "esm", target: "es2020", outfile: path.join(out, "app.js"), minify: !dev, sourcemap: dev, logLevel: "info" };
+const opts = { absWorkingDir: process.cwd(), entryPoints: ["src/main.js"], bundle: true, format: "esm", target: "es2020", outdir: out, entryNames: "app", chunkNames: "chunks/[name]-[hash]", splitting: true, minify: !dev, sourcemap: dev, logLevel: "info" };
 if (dev) {
   const ctx = await esbuild.context(opts);
   await ctx.watch();
