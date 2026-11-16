@@ -51,7 +51,7 @@ const S = {
   drafts: {},            // date → {tasks, gratitude, notes} (앱에서 고친 것, 아직 저장 전)
   date: todayISO(), tab: "day",
   status: { kind: "ok", text: "" },
-  share: { selected: [], secs: new Set(["one", "tasks", "total", "grat"]), layout: null, month: null },
+  share: { selected: [], secs: new Set(["one", "tasks", "total", "grat"]), layout: null, month: null, quality: store.get("quality", "auto"), rFrom: "", rTo: "" },
 };
 
 /* ---------- 데이터 접근 ---------- */
@@ -423,6 +423,11 @@ function autosize() { document.querySelectorAll(".gline textarea, .note textarea
 
 /* ----- 올리기 (캡처 + 제목 + 감사일기 텍스트) ----- */
 const SECTIONS = [["one", "원씽"], ["tasks", "목표 & 실적"], ["total", "합계"], ["grat", "감사일기"]];
+// 사진 용량: 자동은 목표 용량(MB) 이하가 될 때까지 해상도·화질을 단계적으로 낮춤
+const QUALITY = [["auto", "자동"], ["hi", "선명"], ["mid", "보통"], ["low", "작게"]];
+const QHINT = { auto: "고른 날짜가 많아도 사진이 약 1.5MB 이하가 되도록 자동으로 줄여요", hi: "가장 선명 (PNG, 용량 큼)", mid: "화질 좋고 용량은 1/5 정도 (JPG)", low: "용량 최소, 글씨는 읽힘 (JPG)" };
+const QSET = { hi: { scale: 3, png: true }, mid: { scale: 2, q: 0.88 }, low: { scale: 1.5, q: 0.78 } };
+const MAX_PX = 8000, TARGET = 1.5 * 1024 * 1024;
 const LAYOUTS = [["h", "가로로 나란히"], ["v", "세로로 쌓기"], ["each", "날짜마다 따로"]];
 function shareHTML() {
   const sh = S.share;
@@ -439,12 +444,15 @@ function shareHTML() {
     <div class="panel"><h3>날짜 <span>${sh.selected.length}일 선택</span></h3>
       <div class="monthbar"><button class="icon-btn" data-sm="-1" ${sh.month <= 1 ? "disabled" : ""} aria-label="이전 달">‹</button><strong>${y}년 ${sh.month}월</strong><button class="icon-btn" data-sm="1" ${sh.month >= 12 ? "disabled" : ""} aria-label="다음 달">›</button></div>
       <div class="cal">${cal}</div>
+      <div class="rangebar"><input type="date" class="field" id="rFrom" value="${sh.rFrom || sh.selected[0] || ""}" min="${y}-01-01" max="${y}-12-31" aria-label="시작일"><span>~</span><input type="date" class="field" id="rTo" value="${sh.rTo || sh.selected[sh.selected.length - 1] || ""}" min="${y}-01-01" max="${y}-12-31" aria-label="종료일"><button class="chip" data-range>기간 선택</button></div>
       <div class="chips"><button class="chip" data-q="yt">어제·오늘</button><button class="chip" data-q="t">오늘</button><button class="chip" data-q="clear">선택 해제</button></div>
     </div>
     <div class="panel"><h3>이미지에 넣을 항목</h3>
       <div class="chips">${SECTIONS.map(([k, l]) => `<button class="chip" data-sec="${k}" aria-pressed="${sh.secs.has(k)}">${l}</button>`).join("")}</div>
       <div class="chips">${LAYOUTS.map(([k, l]) => `<button class="chip" data-lay="${k}" aria-pressed="${sh.layout === k}">${l}</button>`).join("")}</div>
       <div class="copyrow" style="align-items:center"><label class="hint" for="nick" style="white-space:nowrap">이름</label><input class="field" id="nick" value="${esc(store.get("nick", "워렌부핏"))}" placeholder="워렌부핏"><span class="hint" style="white-space:nowrap">님의</span></div>
+      <div class="chips" role="group" aria-label="사진 용량">${QUALITY.map(([k, l]) => `<button class="chip" data-q2="${k}" aria-pressed="${sh.quality === k}">${l}</button>`).join("")}</div>
+      <p class="hint" id="qHint">${QHINT[sh.quality]}</p>
       <div class="stage" id="stage"><div class="scaler" id="scaler"></div></div>
       <button class="primary" id="goWeolbu">월부에 올리기</button>
       <button class="secondary" id="makeImg">이미지만 만들기</button>
@@ -552,6 +560,16 @@ function bindShare() {
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.pick) { const k = b.dataset.pick, i = sh.selected.indexOf(k); i >= 0 ? sh.selected.splice(i, 1) : sh.selected.push(k); sh.selected.sort(); rerenderShare(); }
     else if (b.dataset.sm) { sh.month += +b.dataset.sm; await ensureMonth(sh.month); rerenderShare(); }
+    else if (b.dataset.range) {
+      let a = $("#rFrom").value, z = $("#rTo").value; if (!a && !z) return toast("시작일과 종료일을 골라주세요");
+      a = a || z; z = z || a; if (a > z) [a, z] = [z, a];
+      sh.rFrom = a; sh.rTo = z; const picked = []; let n = 0;
+      for (let k = a; k <= z && n < 400; k = addDays(k, 1), n++) { if (!inYear(k)) continue; await ensureMonth(monthOf(k)); if (view(k)) picked.push(k); }
+      if (!picked.length) return toast("그 기간엔 기록된 날짜가 없어요");
+      sh.selected = picked; sh.month = monthOf(picked[0]); await ensureMonth(sh.month); rerenderShare();
+      toast(`${picked.length}일 선택했어요`);
+    }
+    else if (b.dataset.q2) { sh.quality = b.dataset.q2; store.set("quality", sh.quality); rerenderShare(); }
     else if (b.dataset.q) { const t = todayISO(); sh.selected = b.dataset.q === "clear" ? [] : (b.dataset.q === "t" ? [t] : [addDays(t, -1), t]).filter(k => view(k)); rerenderShare(); }
     else if (b.dataset.sec) { sh.secs.has(b.dataset.sec) ? sh.secs.delete(b.dataset.sec) : sh.secs.add(b.dataset.sec); rerenderShare(); }
     else if (b.dataset.lay) { sh.layout = b.dataset.lay; store.set("layout", sh.layout); rerenderShare(); }
@@ -576,17 +594,41 @@ async function copyFrom(el, btn) {
 // 월부 목실감 게시판 글쓰기 화면 (게시판이 '부동산 / 매일실천 / 목실감'으로 미리 선택돼서 열림)
 const WEOLBU_WRITE = "https://weolbu.com/community/form?nav=2041";
 
+const toBlob = (c, type, q) => new Promise(r => c.toBlob(r, type, q));
+function resized(src, w) {
+  if (src.width <= w) return src;
+  const c = document.createElement("canvas"); c.width = Math.round(w); c.height = Math.round(src.height * w / src.width);
+  const x = c.getContext("2d"); x.fillStyle = "#c3eef3"; x.fillRect(0, 0, c.width, c.height);
+  x.imageSmoothingQuality = "high"; x.drawImage(src, 0, 0, c.width, c.height); return c;
+}
+// 선택한 용량 설정에 맞춰 캔버스를 파일로 만듦
+async function encode(canvas, name) {
+  const mode = S.share.quality;
+  const fit = w => { const k = Math.min(1, MAX_PX / Math.max(canvas.width, canvas.height)); return Math.min(w, canvas.width * k); };
+  const file = (b, ext) => new File([b], `${name}.${ext}`, { type: b.type });
+  if (mode === "hi") { const b = await toBlob(resized(canvas, fit(canvas.width)), "image/png"); return file(b, "png"); }
+  if (mode !== "auto") { const o = QSET[mode], c = resized(canvas, fit(canvas.width * o.scale / 3)); return file(await toBlob(c, "image/jpeg", o.q), "jpg"); }
+  // 자동: 크기를 줄여가며 목표 용량 이하가 되는 첫 조합을 씀
+  let best = null;
+  for (const [f, q] of [[0.67, 0.88], [0.67, 0.78], [0.5, 0.78], [0.5, 0.68], [0.4, 0.62], [0.33, 0.55]]) {
+    best = await toBlob(resized(canvas, fit(canvas.width * f)), "image/jpeg", q);
+    if (best.size <= TARGET) break;
+  }
+  return file(best, "jpg");
+}
 async function renderFiles() {
   const sh = S.share;
   await document.fonts?.ready;
   const groups = sh.layout === "each" ? sh.selected.map(k => [k]) : [sh.selected], off = $("#offscreen"), files = [];
+  const { default: html2canvas } = await import("html2canvas"); // 올리기에서만 쓰는 큰 라이브러리라 필요할 때 불러옴
   for (const g of groups) {
     off.innerHTML = shotHTML(g, sh.layout);
     await Promise.all([...off.querySelectorAll("img")].map(i => i.decode().catch(() => {}))); // 그림 로드 대기
-    const { default: html2canvas } = await import("html2canvas"); // 올리기에서만 쓰는 큰 라이브러리라 필요할 때 불러옴
-    const canvas = await html2canvas(off.firstElementChild, { scale: 3, backgroundColor: "#c3eef3", logging: false });
-    const blob = await new Promise(r => canvas.toBlob(r, "image/png"));
-    files.push(new File([blob], `목실감_${g.map(k => k.slice(5).replace("-", "")).join("_")}.png`, { type: "image/png" }));
+    // 날짜가 많아 한 장이 너무 커지면 캡처 배율부터 낮춰 메모리 초과를 막음
+    const el = off.firstElementChild, scale = Math.max(1, Math.min(3, MAX_PX / Math.max(el.scrollWidth, el.scrollHeight)));
+    const canvas = await html2canvas(el, { scale, backgroundColor: "#c3eef3", logging: false });
+    files.push(await encode(canvas, `목실감_${g.map(k => k.slice(5).replace("-", "")).join("_")}`));
+    canvas.width = canvas.height = 0;
   }
   off.innerHTML = "";
   return files;
@@ -600,10 +642,16 @@ async function makeImages(btn, mode) {
 }
 
 // 제목(글자)과 이미지를 한 번에 클립보드에 넣음 → 월부 제목 칸엔 제목, 본문 칸엔 이미지가 붙여넣어짐
+// 클립보드는 PNG만 받는 브라우저가 많아서, JPG면 같은 크기 PNG로 바꿔 넣음 (붙여넣을 때 용량은 줄인 크기 그대로)
+async function asPng(file) {
+  if (file.type === "image/png") return file;
+  const bmp = await createImageBitmap(file), c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
+  c.getContext("2d").drawImage(bmp, 0, 0); return toBlob(c, "image/png");
+}
 async function copyTitleAndImage(title, file) {
   if (!navigator.clipboard?.write || !window.ClipboardItem) return false;
   try {
-    await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([title], { type: "text/plain" }), "image/png": file })]);
+    await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([title], { type: "text/plain" }), "image/png": asPng(file) })]);
     return true;
   } catch { return false; }
 }
@@ -614,7 +662,7 @@ function showImages(files, mode) {
   const canShare = navigator.canShare?.({ files });
   const title = buildTitle();
   const upload = mode === "upload";
-  ov.innerHTML = `<div class="sheet-modal" role="dialog" aria-label="${upload ? "월부에 올리기" : "이미지"}"><div class="head"><strong>${upload ? "월부에 올릴 준비 완료" : `이미지 ${files.length}장`}</strong><button class="icon-btn" data-x aria-label="닫기">✕</button></div>
+  ov.innerHTML = `<div class="sheet-modal" role="dialog" aria-label="${upload ? "월부에 올리기" : "이미지"}"><div class="head"><strong>${upload ? "월부에 올릴 준비 완료" : `이미지 ${files.length}장`} <small style="font-weight:400;color:var(--muted)">· ${(files.reduce((a, f) => a + f.size, 0) / 1048576).toFixed(1)}MB</small></strong><button class="icon-btn" data-x aria-label="닫기">✕</button></div>
     ${upload ? `
       <div class="panel" style="gap:8px"><h3>제목</h3><div style="font-weight:700">${esc(title)}</div></div>
       <button class="primary" data-go>복사하고 월부 글쓰기 열기</button>

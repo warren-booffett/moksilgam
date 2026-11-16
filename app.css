@@ -234,3 +234,5 @@ textarea.field { resize: vertical; }
 .wgrat { padding: 26px 28px 30px; gap: 0; }
 .wsmile { display: flex; justify-content: center; padding-bottom: 18px; }
 .wgrat p { margin: 0; font-size: 20px; line-height: 1.75; color: #3a414d; letter-spacing: -0.02em; word-break: keep-all; overflow-wrap: anywhere; }
+
+.rangebar { display: flex; align-items: center; gap: 6px; } .rangebar .field { padding: 8px 6px; font-size: 14px; flex: 1; }

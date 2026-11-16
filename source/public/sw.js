@@ -1,6 +1,6 @@
 // 앱 화면 파일: 캐시에 있으면 바로 띄우고 뒤에서 새 버전을 받아둠 (다음에 켤 때 반영).
 // 웹폰트: 한 번 받으면 캐시에서. 엑셀 데이터·로그인·OneDrive 요청은 건드리지 않음.
-const CACHE = "mok-shell-v8";
+const CACHE = "mok-shell-v9";
 const FONT = "mok-font-v1";
 const SHELL = ["./", "index.html", "app.js", "app.css", "manifest.webmanifest", "icon.svg", "scene-goal.png", "scene-grat.png"];
 const FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com", "cdn.jsdelivr.net"];
