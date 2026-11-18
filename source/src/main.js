@@ -641,19 +641,27 @@ async function makeImages(btn, mode) {
   finally { btn.disabled = false; btn.textContent = label; }
 }
 
-// 제목(글자)과 이미지를 한 번에 클립보드에 넣음 → 월부 제목 칸엔 제목, 본문 칸엔 이미지가 붙여넣어짐
+// 클립보드: 안드로이드는 글자+이미지를 한 번에 못 넣는 경우가 많아서 제목과 사진을 따로 복사함
 // 클립보드는 PNG만 받는 브라우저가 많아서, JPG면 같은 크기 PNG로 바꿔 넣음 (붙여넣을 때 용량은 줄인 크기 그대로)
 async function asPng(file) {
   if (file.type === "image/png") return file;
   const bmp = await createImageBitmap(file), c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
-  c.getContext("2d").drawImage(bmp, 0, 0); return toBlob(c, "image/png");
+  c.getContext("2d").drawImage(bmp, 0, 0); bmp.close?.(); return toBlob(c, "image/png");
 }
-async function copyTitleAndImage(title, file) {
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  const t = document.createElement("textarea"); t.value = text; t.setAttribute("readonly", ""); t.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+  document.body.appendChild(t); t.focus(); t.select(); t.setSelectionRange(0, text.length);
+  let ok = false; try { ok = document.execCommand("copy"); } catch {} t.remove(); return ok;
+}
+async function copyImage(pngPromise) {
   if (!navigator.clipboard?.write || !window.ClipboardItem) return false;
-  try {
-    await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([title], { type: "text/plain" }), "image/png": asPng(file) })]);
-    return true;
-  } catch { return false; }
+  try { await navigator.clipboard.write([new ClipboardItem({ "image/png": pngPromise })]); return true; } catch { return false; }
+}
+function flash(btn, text, ok) {
+  const old = btn.dataset.label ?? (btn.dataset.label = btn.textContent);
+  btn.textContent = text; btn.classList.toggle("done", ok);
+  clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = old; btn.classList.remove("done"); }, 2200);
 }
 
 function showImages(files, mode) {
@@ -665,30 +673,43 @@ function showImages(files, mode) {
   ov.innerHTML = `<div class="sheet-modal" role="dialog" aria-label="${upload ? "월부에 올리기" : "이미지"}"><div class="head"><strong>${upload ? "월부에 올릴 준비 완료" : `이미지 ${files.length}장`} <small style="font-weight:400;color:var(--muted)">· ${(files.reduce((a, f) => a + f.size, 0) / 1048576).toFixed(1)}MB</small></strong><button class="icon-btn" data-x aria-label="닫기">✕</button></div>
     ${upload ? `
       <div class="panel" style="gap:8px"><h3>제목</h3><div style="font-weight:700">${esc(title)}</div></div>
-      <button class="primary" data-go>복사하고 월부 글쓰기 열기</button>
+      <button class="primary" data-go>제목 복사하고 월부 글쓰기 열기</button>
       <ol class="steps">
-        <li>월부 글쓰기 화면이 열리면 <b>제목 칸</b>을 길게 눌러 <b>붙여넣기</b></li>
-        <li><b>내용 칸</b>을 길게 눌러 <b>붙여넣기</b> → 이미지가 들어가요</li>
-        <li>확인하고 <b>등록</b></li>
+        <li>월부 글쓰기 <b>제목 칸</b>을 길게 눌러 <b>붙여넣기</b></li>
+        <li>이 화면으로 돌아와 <b>사진 복사</b> 누르기</li>
+        <li>월부 <b>내용 칸</b>을 길게 눌러 <b>붙여넣기</b> → 이미지가 들어가요</li>
       </ol>
-      ${files.length > 1 ? `<p class="hint">이미지가 ${files.length}장이라 첫 장만 복사돼요. 나머지는 아래에서 저장해서 월부의 사진 버튼으로 넣어주세요.</p>` : ""}
-      <p class="hint" data-fallback hidden>이 브라우저는 이미지 복사를 지원하지 않아요. 제목만 복사했어요. 아래 [사진에 저장]으로 저장한 뒤, 월부 글쓰기의 사진 버튼으로 넣어주세요.</p>` : ""}
-    ${canShare ? `<button class="${upload ? "secondary" : "primary"}" data-share>사진에 저장 · 공유</button>` : `<p class="hint">이미지를 길게 눌러 저장하거나, 아래 버튼으로 내려받으세요.</p>`}
+      ${files.map((f, i) => `<button class="primary" data-img="${i}">${files.length > 1 ? `사진 ${i + 1} 복사` : "사진 복사"}</button>`).join("")}
+      <button class="secondary" data-title>제목만 다시 복사</button>
+      <p class="hint" data-fallback hidden>사진 복사가 안 되면 아래 사진을 길게 눌러 <b>이미지 복사</b>를 선택하세요.</p>` : `
+      ${canShare ? `<button class="primary" data-share>사진에 저장 · 공유</button>` : `<p class="hint">이미지를 길게 눌러 저장하거나, 아래 버튼으로 내려받으세요.</p>`}`}
     ${urls.map((u, i) => `<img src="${u}" alt="${esc(files[i].name)}"><a class="secondary" style="text-align:center;text-decoration:none;display:block" href="${u}" download="${esc(files[i].name)}">${esc(files[i].name)} 내려받기</a>`).join("")}</div>`;
   document.body.appendChild(ov);
   const close = () => { ov.remove(); urls.forEach(URL.revokeObjectURL); };
+  // 사진은 미리 PNG로 바꿔둠 → 누르는 순간 바로 클립보드에 쓸 수 있음
+  const pngs = upload ? files.map(f => asPng(f)) : [];
+  pngs.forEach(p => p.catch(() => {}));
   ov.addEventListener("click", async e => {
     if (e.target === ov || e.target.closest("[data-x]")) return close();
-    if (e.target.closest("[data-share]")) { try { await navigator.share({ files }); } catch {} }
+    if (e.target.closest("[data-share]")) { try { await navigator.share({ files }); } catch {} return; }
     const go = e.target.closest("[data-go]");
     if (go) {
-      // 클립보드 쓰기와 새 창 열기는 같은 탭(사용자 동작) 안에서 바로 해야 막히지 않음
-      const copying = copyTitleAndImage(title, files[0]);
+      // 제목 복사와 새 창 열기는 같은 탭(사용자 동작) 안에서 바로 해야 막히지 않음
+      const copying = copyText(title);
       window.open(WEOLBU_WRITE, "_blank", "noopener");
       const ok = await copying;
-      if (!ok) { try { await navigator.clipboard.writeText(title); } catch {} $("[data-fallback]", ov).hidden = false; }
-      go.textContent = ok ? "복사됨 · 월부에서 붙여넣으세요" : "제목만 복사됨";
-      toast(ok ? "제목과 이미지를 복사했어요" : "제목을 복사했어요");
+      flash(go, ok ? "제목 복사됨 · 월부에 붙여넣으세요" : "제목 복사 실패 · 아래 버튼으로 다시", ok);
+      toast(ok ? "제목을 복사했어요" : "제목을 복사하지 못했어요");
+      return;
+    }
+    const t = e.target.closest("[data-title]");
+    if (t) { const ok = await copyText(title); flash(t, ok ? "제목 복사됨" : "복사 실패", ok); toast(ok ? "제목을 복사했어요" : "제목을 복사하지 못했어요"); return; }
+    const im = e.target.closest("[data-img]");
+    if (im) {
+      const ok = await copyImage(pngs[+im.dataset.img]);
+      flash(im, ok ? "복사됨 · 월부 내용 칸에 붙여넣으세요" : "복사 실패 · 사진을 길게 눌러 복사", ok);
+      if (!ok) $("[data-fallback]", ov).hidden = false;
+      toast(ok ? "사진을 복사했어요" : "사진을 복사하지 못했어요");
     }
   });
 }
