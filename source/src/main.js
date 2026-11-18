@@ -655,8 +655,9 @@ async function copyText(text) {
   let ok = false; try { ok = document.execCommand("copy"); } catch {} t.remove(); return ok;
 }
 async function copyImage(pngPromise) {
-  if (!navigator.clipboard?.write || !window.ClipboardItem) return false;
-  try { await navigator.clipboard.write([new ClipboardItem({ "image/png": pngPromise })]); return true; } catch { return false; }
+  if (!navigator.clipboard?.write || !window.ClipboardItem) return "이 브라우저는 사진 복사 미지원";
+  try { await navigator.clipboard.write([new ClipboardItem({ "image/png": pngPromise })]); return ""; }
+  catch (e) { return e?.name || "오류"; }
 }
 function flash(btn, text, ok) {
   const old = btn.dataset.label ?? (btn.dataset.label = btn.textContent);
@@ -680,8 +681,9 @@ function showImages(files, mode) {
         <li>월부 <b>내용 칸</b>을 길게 눌러 <b>붙여넣기</b> → 이미지가 들어가요</li>
       </ol>
       ${files.map((f, i) => `<button class="primary" data-img="${i}">${files.length > 1 ? `사진 ${i + 1} 복사` : "사진 복사"}</button>`).join("")}
+      ${files.map((f, i) => `<a class="primary alt" href="${urls[i]}" download="${esc(f.name)}">${files.length > 1 ? `사진 ${i + 1} 갤러리에 저장` : "사진 갤러리에 저장"}</a>`).join("")}
       <button class="secondary" data-title>제목만 다시 복사</button>
-      <p class="hint" data-fallback hidden>사진 복사가 안 되면 아래 사진을 길게 눌러 <b>이미지 복사</b>를 선택하세요.</p>` : `
+      <p class="hint" data-fallback hidden><b>복사가 안 되는 폰이에요.</b> 위 <b>갤러리에 저장</b>을 누른 뒤, 월부 글쓰기의 <b>사진(이미지) 버튼</b>으로 방금 저장한 사진을 고르세요.</p>` : `
       ${canShare ? `<button class="primary" data-share>사진에 저장 · 공유</button>` : `<p class="hint">이미지를 길게 눌러 저장하거나, 아래 버튼으로 내려받으세요.</p>`}`}
     ${urls.map((u, i) => `<img src="${u}" alt="${esc(files[i].name)}"><a class="secondary" style="text-align:center;text-decoration:none;display:block" href="${u}" download="${esc(files[i].name)}">${esc(files[i].name)} 내려받기</a>`).join("")}</div>`;
   document.body.appendChild(ov);
@@ -706,10 +708,10 @@ function showImages(files, mode) {
     if (t) { const ok = await copyText(title); flash(t, ok ? "제목 복사됨" : "복사 실패", ok); toast(ok ? "제목을 복사했어요" : "제목을 복사하지 못했어요"); return; }
     const im = e.target.closest("[data-img]");
     if (im) {
-      const ok = await copyImage(pngs[+im.dataset.img]);
-      flash(im, ok ? "복사됨 · 월부 내용 칸에 붙여넣으세요" : "복사 실패 · 사진을 길게 눌러 복사", ok);
-      if (!ok) $("[data-fallback]", ov).hidden = false;
-      toast(ok ? "사진을 복사했어요" : "사진을 복사하지 못했어요");
+      const err = await copyImage(pngs[+im.dataset.img]);
+      flash(im, err ? `복사 실패 (${err})` : "복사됨 · 월부 내용 칸에 붙여넣으세요", !err);
+      if (err) $("[data-fallback]", ov).hidden = false;
+      toast(err ? "사진을 복사하지 못했어요" : "사진을 복사했어요");
     }
   });
 }
