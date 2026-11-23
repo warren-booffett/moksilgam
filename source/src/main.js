@@ -2,7 +2,7 @@ import JSZip from "jszip";
 import { openWorkbook, readMonth, readSummary, writeDay, saveWorkbook, derive, dayTotals, hasMonth } from "./workbook.js";
 import { oneDriveConfigured, signedInAccount, signIn, signOut, reauth, oneDriveSource, localFileSource } from "./sources.js";
 import { DEFAULT_PATH } from "./config.js";
-import { bindWeekSwipe } from "./swipe.js";
+import { bindStripDrag, cellLeft, nearestCell } from "./strip.js";
 
 /* ---------- 작은 유틸 ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -248,7 +248,7 @@ function render() {
     </div></nav>
     <div id="offscreen" aria-hidden="true"></div>`;
   paintSync($("#sync"));
-  if (S.tab === "day") bindDay();
+  if (S.tab === "day") { placeStrip(); bindDay(); loadVisibleMonths(); }
   if (S.tab === "share") bindShare();
   if (S.tab === "routine") bindRoutine();
   autosize();
@@ -282,17 +282,54 @@ function bindWelcome() {
   });
 }
 
-/* ----- 주간 날짜 줄 ----- */
+/* ----- 날짜 줄: 올해 전체를 한 줄로 깔고 가로로 연속 스크롤 (일요일 시작 주 단위로 앞뒤를 채움) ----- */
+const dayDiff = (a, b) => Math.round((parse(b) - parse(a)) / 864e5);
+const stripStart = () => { const j = `${S.year}-01-01`; return addDays(j, -parse(j).getDay()); };
+const stripCount = () => Math.ceil((dayDiff(stripStart(), `${S.year}-12-31`) + 1) / 7) * 7;
+let stripLeft = null;       // 날짜 줄의 현재 스크롤 위치(화면을 다시 그려도 유지)
+let stripFocus = true;      // true면 다음 그리기 때 선택한 날짜가 있는 주로 맞춤
+function dayCellClass(iso, i) {
+  const v = view(iso);
+  return ["wd", i === 0 && "sun", i === 6 && "sat", iso === S.date && "sel", iso === todayISO() && "today", hasContent(v) && "has", S.drafts[iso] && "unsaved"].filter(Boolean).join(" ");
+}
 function weekHTML() {
-  const d = parse(S.date), start = addDays(S.date, -d.getDay());
-  const t = todayISO();
-  let html = `<div class="week"><button class="nav" data-wk="-7" aria-label="지난주">‹</button>`;
-  for (let i = 0; i < 7; i++) {
-    const iso = addDays(start, i), dd = parse(iso), v = inYear(iso) ? view(iso) : null;
-    const cls = ["wd", i === 0 && "sun", i === 6 && "sat", iso === S.date && "sel", iso === t && "today", hasContent(v) && "has", S.drafts[iso] && "unsaved"].filter(Boolean).join(" ");
-    html += `<button class="${cls}" data-date="${iso}" ${v ? "" : "disabled"} aria-label="${dd.getMonth() + 1}월 ${dd.getDate()}일"><small>${DOW[i]}</small><b class="num">${dd.getDate()}</b><span class="dot"></span></button>`;
+  const start = stripStart(), n = stripCount();
+  let cells = "";
+  for (let k = 0; k < n; k++) {
+    const iso = addDays(start, k), dd = parse(iso), i = k % 7;
+    cells += `<button class="${dayCellClass(iso, i)}" data-date="${iso}" ${inYear(iso) ? "" : "disabled"} aria-label="${dd.getMonth() + 1}월 ${dd.getDate()}일"><small>${DOW[i]}</small><b class="num">${dd.getDate()}</b><span class="dot"></span></button>`;
   }
-  return html + `<button class="nav" data-wk="7" aria-label="다음주">›</button></div>`;
+  return `<div class="weekwrap"><div class="wk-month" id="wkMonth"></div><div class="week"><button class="nav" data-wk="-7" aria-label="지난주">‹</button><div class="days" id="days">${cells}</div><button class="nav" data-wk="7" aria-label="다음주">›</button></div></div>`;
+}
+// 그린 직후: 스크롤 위치 복원(또는 선택한 주로 이동), 달 표시
+function placeStrip() {
+  const el = $("#days"); if (!el) return;
+  if (stripFocus || stripLeft == null) { el.scrollLeft = cellLeft(el, Math.floor(dayDiff(stripStart(), S.date) / 7) * 7); stripFocus = false; }
+  else el.scrollLeft = stripLeft;
+  stripLeft = el.scrollLeft;
+  paintMonthLabel(el);
+}
+// 가운데 날짜의 연·월 표시 (연속으로 넘길 때 어느 달인지 알 수 있게)
+function paintMonthLabel(el) {
+  const lab = $("#wkMonth"); if (!lab) return;
+  const k = Math.min(stripCount() - 1, nearestCell(el) + 3);
+  let iso = addDays(stripStart(), k);
+  if (!inYear(iso)) iso = iso < `${S.year}` ? `${S.year}-01-01` : `${S.year}-12-31`; // 앞뒤 빈 칸은 올해 첫날/끝날로
+  const d = parse(iso);
+  lab.textContent = `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
+}
+// 보이는 날짜(앞뒤 한 주 여유)의 월 데이터를 읽어 점(●)을 채움. 화면은 다시 그리지 않음
+async function loadVisibleMonths() {
+  const el = $("#days"); if (!el || !S.wb) return;
+  const k0 = nearestCell(el), start = stripStart();
+  const months = new Set();
+  for (const k of [k0 - 7, k0, k0 + 6, k0 + 13]) { const iso = addDays(start, Math.max(0, Math.min(stripCount() - 1, k))); if (inYear(iso)) months.add(monthOf(iso)); }
+  let loaded = false;
+  for (const m of months) if (!S.months[m]) { await ensureMonth(m); loaded = true; }
+  if (loaded) paintStrip();
+}
+function paintStrip() {
+  document.querySelectorAll(".days .wd").forEach((b, i) => { b.className = dayCellClass(b.dataset.date, i % 7); });
 }
 
 /* ----- 하루 기록 ----- */
@@ -826,24 +863,23 @@ async function openSettings() {
 }
 
 /* ---------- 전역 이벤트 ---------- */
-// 한 주(±7일) 이동. 같은 요일 유지, 해가 바뀌는 쪽으로는 못 감. 옮겼으면 true
-async function shiftWeek(n) {
-  const to = addDays(S.date, n);
-  if (!inYear(to)) return false;
-  await ensureWeek(to); S.date = to; render();
-  return true;
+// 날짜 줄: 마우스로 끌어 연속 스크롤 (터치는 기본 스크롤), 스크롤 중 달 표시·월 데이터 갱신
+bindStripDrag();
+{
+  let t = 0, f = 0;
+  document.addEventListener("scroll", e => {
+    const el = e.target; if (el?.id !== "days") return;
+    stripLeft = el.scrollLeft;
+    if (!f) f = requestAnimationFrame(() => { f = 0; paintMonthLabel(el); });
+    clearTimeout(t); t = setTimeout(loadVisibleMonths, 120);
+  }, true);
 }
-// 날짜 줄을 마우스로 끌거나 손가락으로 밀어서 지난주/다음주로
-bindWeekSwipe({
-  canShift: dir => S.tab === "day" && inYear(addDays(S.date, dir * 7)),
-  shift: dir => shiftWeek(dir * 7),
-});
 document.addEventListener("click", async e => {
   if (e.target.closest("#sync") && S.status.kind === "login") { reauth(); return; }
   const b = e.target.closest("button"); if (!b) return;
-  if (b.dataset.tab) { S.tab = b.dataset.tab; if (S.tab === "share") S.share.month = monthOf(S.date); render(); scrollTo(0, 0); }
-  else if (b.dataset.date) { S.date = b.dataset.date; render(); }
-  else if (b.dataset.wk) await shiftWeek(+b.dataset.wk);
+  if (b.dataset.tab) { S.tab = b.dataset.tab; if (S.tab === "day") stripFocus = true; if (S.tab === "share") S.share.month = monthOf(S.date); render(); scrollTo(0, 0); }
+  else if (b.dataset.date) { await ensureMonth(monthOf(b.dataset.date)); S.date = b.dataset.date; render(); }
+  else if (b.dataset.wk) { const el = $("#days"); if (el) el.scrollTo({ left: cellLeft(el, nearestCell(el) + +b.dataset.wk), behavior: "smooth" }); }
   else if (b.id === "saveBtn") { b.disabled = true; await saveAll(); render(); }
   else if (b.id === "openSettings") openSettings();
 });

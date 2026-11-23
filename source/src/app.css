@@ -41,9 +41,14 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .sync.busy i, .sync.check i { animation: none; } }
 .icon-btn { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); display: grid; place-items: center; font-size: 17px; }
 
-.week { display: grid; grid-template-columns: 28px repeat(7, 1fr) 28px; gap: 2px; align-items: center; }
-.week { touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: grab; will-change: transform; }
-.week.dragging { cursor: grabbing; }
+.weekwrap { display: grid; gap: 0; }
+.wk-month { font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 32px; min-height: 16px; }
+.week { display: grid; grid-template-columns: 28px 1fr 28px; align-items: center; }
+/* 날짜 줄: 가로로 연속 스크롤. 멈출 땐 날짜 칸에 맞춤, 터치는 기본 스크롤/관성, 마우스는 끌어서(strip.js) */
+.days { display: grid; grid-auto-flow: column; grid-auto-columns: calc(100% / 7); overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+.days::-webkit-scrollbar { display: none; }
+.days.dragging { scroll-snap-type: none; cursor: grabbing; }
+.days .wd { scroll-snap-align: start; }
 .week .nav { border: 0; background: none; color: var(--muted); font-size: 20px; height: 44px; }
 .wd { border: 0; background: none; border-radius: 12px; padding: 4px 0 6px; display: grid; justify-items: center; gap: 1px; position: relative; }
 .wd small { font-size: 11px; color: var(--muted); }
