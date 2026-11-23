@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import { openWorkbook, readMonth, readSummary, writeDay, saveWorkbook, derive, dayTotals, hasMonth } from "./workbook.js";
 import { oneDriveConfigured, signedInAccount, signIn, signOut, reauth, oneDriveSource, localFileSource } from "./sources.js";
 import { DEFAULT_PATH } from "./config.js";
+import { bindWeekSwipe } from "./swipe.js";
 
 /* ---------- 작은 유틸 ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -825,12 +826,24 @@ async function openSettings() {
 }
 
 /* ---------- 전역 이벤트 ---------- */
+// 한 주(±7일) 이동. 같은 요일 유지, 해가 바뀌는 쪽으로는 못 감. 옮겼으면 true
+async function shiftWeek(n) {
+  const to = addDays(S.date, n);
+  if (!inYear(to)) return false;
+  await ensureWeek(to); S.date = to; render();
+  return true;
+}
+// 날짜 줄을 마우스로 끌거나 손가락으로 밀어서 지난주/다음주로
+bindWeekSwipe({
+  canShift: dir => S.tab === "day" && inYear(addDays(S.date, dir * 7)),
+  shift: dir => shiftWeek(dir * 7),
+});
 document.addEventListener("click", async e => {
   if (e.target.closest("#sync") && S.status.kind === "login") { reauth(); return; }
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.tab) { S.tab = b.dataset.tab; if (S.tab === "share") S.share.month = monthOf(S.date); render(); scrollTo(0, 0); }
   else if (b.dataset.date) { S.date = b.dataset.date; render(); }
-  else if (b.dataset.wk) { const n = addDays(S.date, +b.dataset.wk); if (inYear(n)) { await ensureWeek(n); S.date = n; render(); } }
+  else if (b.dataset.wk) await shiftWeek(+b.dataset.wk);
   else if (b.id === "saveBtn") { b.disabled = true; await saveAll(); render(); }
   else if (b.id === "openSettings") openSettings();
 });
