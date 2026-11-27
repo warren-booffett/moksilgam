@@ -459,8 +459,9 @@ function shareHTML() {
       <button class="secondary" id="makeImg">이미지만 만들기</button>
     </div>
     <div class="panel"><h3>글 제목</h3>
-      <label class="hint" for="suffix">제목 뒤에 붙일 말 · ${new Date().getMonth() + 1}월 기본값으로 기억돼요</label>
+      <label class="hint" for="suffix">제목 뒤에 붙일 말 · 고치면 기본값으로 저장돼서 다음에도 그대로 떠요</label>
       <input class="field" id="suffix" value="${esc(getSuffix())}" placeholder="예: 독서TF/재테입2기 5늘부터9십살까지부자되조 워렌부핏">
+      <div class="chips"><button class="chip" data-suffix-reset>처음 문구로 되돌리기</button></div>
       <div class="copyrow"><input class="field" id="titleOut" readonly style="font-weight:600"><button class="cbtn" data-copy="titleOut">복사</button></div>
     </div>
     <div class="panel"><h3>감사일기 텍스트 <span>월부 감사일기에 붙여넣기</span></h3><div id="gratOut" class="stack"></div></div>
@@ -473,15 +474,13 @@ function fmtRange(keys) {
   ds.forEach(d => { const l = runs[runs.length - 1]; if (l && Math.round((d - l[l.length - 1]) / 86400000) === 1) l.push(d); else runs.push([d]); });
   return runs.map(r => { const a = r[0], b = r[r.length - 1], A = `${a.getMonth() + 1}.${a.getDate()}`; return r.length === 1 ? A : a.getMonth() === b.getMonth() ? `${A}~${b.getDate()}` : `${A}~${b.getMonth() + 1}.${b.getDate()}`; }).join(", ");
 }
-// 제목 꼬리말: 이번 달에 입력한 값이 이번 달 기본값. 새 달이 되면 마지막으로 쓴 값을 이어받아 시작.
+// 제목 꼬리말: 입력칸에서 고친 값이 그대로 기본값으로 저장돼 다음에 열어도 계속 그 값으로 뜸.
+// (예전 버전의 달별 저장값이 있으면 마지막으로 쓴 값을 이어받음)
 const DEFAULT_SUFFIX = "독서TF/재테입2기 5늘부터9십살까지부자되조 워렌부핏";
-const monthKey = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
 function getSuffix() {
-  const m = store.get(`suffix.${monthKey()}`, null);
-  if (m != null) return m;
-  return store.get("suffix.last", null) ?? store.get("suffix", null) ?? DEFAULT_SUFFIX;
+  return store.get("suffix", null) ?? store.get("suffix.last", null) ?? DEFAULT_SUFFIX;
 }
-function setSuffix(v) { store.set(`suffix.${monthKey()}`, v); store.set("suffix.last", v); }
+function setSuffix(v) { store.set("suffix", v); store.set("suffix.last", v); }
 function buildTitle() {
   const sel = S.share.selected; if (!sel.length) return "";
   let s = ($("#suffix")?.value ?? getSuffix()).trim();
@@ -574,6 +573,7 @@ function bindShare() {
     else if (b.dataset.q) { const t = todayISO(); sh.selected = b.dataset.q === "clear" ? [] : (b.dataset.q === "t" ? [t] : [addDays(t, -1), t]).filter(k => view(k)); rerenderShare(); }
     else if (b.dataset.sec) { sh.secs.has(b.dataset.sec) ? sh.secs.delete(b.dataset.sec) : sh.secs.add(b.dataset.sec); rerenderShare(); }
     else if (b.dataset.lay) { sh.layout = b.dataset.lay; store.set("layout", sh.layout); rerenderShare(); }
+    else if (b.dataset.suffixReset !== undefined) { $("#suffix").value = DEFAULT_SUFFIX; setSuffix(DEFAULT_SUFFIX); $("#titleOut").value = buildTitle() || "날짜를 고르면 제목이 만들어져요"; toast("처음 문구로 되돌렸어요"); }
     else if (b.dataset.copy) copyFrom($("#" + CSS.escape(b.dataset.copy)), b);
     else if (b.id === "makeImg") makeImages(b, "image");
     else if (b.id === "goWeolbu") makeImages(b, "upload");
